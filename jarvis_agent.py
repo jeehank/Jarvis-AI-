@@ -106,6 +106,18 @@ class Voice:
             threading.Thread(target=_play, daemon=True).start()
 
 
+def safe_print(text: str) -> None:
+    """Safely print text to standard output, preventing Windows console charmap errors."""
+    try:
+        print(text)
+    except (UnicodeEncodeError, Exception):
+        try:
+            enc = sys.stdout.encoding or "utf-8"
+            print(text.encode(enc, errors="replace").decode(enc))
+        except Exception:
+            pass
+
+
 # ── Brain (command routing + Groq) ─────────────────────────────────
 
 class Brain:
@@ -178,7 +190,7 @@ class Brain:
 
         self.voice.speak("Locating the post and liking it now, sir.")
         res = TOOL_FUNCTION_MAP["like_current_post"]("instagram")
-        print(f"  JARVIS: {res}")
+        safe_print(f"  JARVIS: {res}")
         self.voice.speak("Done, sir. Post liked.")
         return True
 
@@ -212,7 +224,7 @@ class Brain:
         display = contact.capitalize() if contact else "contact"
         self.voice.speak(f"Opening Instagram chat with {display} and sending your message, sir.")
         res = TOOL_FUNCTION_MAP["send_instagram_dm_message"](contact, message)
-        print(f"  JARVIS: {res}")
+        safe_print(f"  JARVIS: {res}")
         return True
 
     def _find_ig_contact(self, t: str) -> str:
@@ -259,7 +271,7 @@ class Brain:
 
         self.voice.speak("Inspecting your screen now, sir.")
         result = TOOL_FUNCTION_MAP["see_and_analyze_screen"](t)
-        print(f"  JARVIS: {result}")
+        safe_print(f"  JARVIS: {result}")
         self.voice.speak(result)
         return True
 
@@ -415,14 +427,14 @@ class Brain:
                     reply = f"Done, sir. {last_result}"
 
                 self.history.append({"role": "assistant", "content": reply})
-                print(f"  JARVIS: {reply}")
+                safe_print(f"  JARVIS: {reply}")
                 self.voice.speak(reply)
                 return
 
             # Direct response without tool calls
             reply = msg.content or "Right away, sir."
             self.history.append({"role": "assistant", "content": reply})
-            print(f"  JARVIS: {reply}")
+            safe_print(f"  JARVIS: {reply}")
             self.voice.speak(reply)
 
         except Exception as e:
