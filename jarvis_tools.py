@@ -22,9 +22,9 @@ from PIL import Image
 import pyautogui
 from pycaw.pycaw import AudioUtilities
 
-# Configure PyAutoGUI fail-safe
-pyautogui.FAILSAFE = True
-pyautogui.PAUSE = 0.3
+# Configure PyAutoGUI
+pyautogui.FAILSAFE = False
+pyautogui.PAUSE = 0.2
 
 log = logging.getLogger("jarvis.tools")
 
