@@ -146,7 +146,7 @@ class JarvisBrain:
             )
 
             response = self.client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-3.6-flash",
                 contents=self.chat_history,
                 config=config,
             )
@@ -178,7 +178,7 @@ class JarvisBrain:
                     )
 
                     follow_up = self.client.models.generate_content(
-                        model="gemini-2.5-flash",
+                        model="gemini-3.6-flash",
                         contents=self.chat_history,
                         config=config,
                     )
