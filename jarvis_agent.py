@@ -47,7 +47,7 @@ SYSTEM_PROMPT = (
     "   - GENERATE the actual, thoughtful, friendly message body (do NOT send instructions or placeholders like '[Your Name]'). "
     "   - Call the 'send_whatsapp_message' or 'send_instagram_dm_message' tool with the contact name and your generated message body.\n"
     "2. If the user asks to message 'the group', 'a group', or 'in a group' on WhatsApp, the group name is: "
-    "'DEBAYAN PATHAK IS GOING TO ENGLAND BABES (BO'O'WOER)'.\n"
+    "'BLACKBIRD FLY'.\n"
     "3. Keep your spoken responses concise, witty, and polite (1-2 sentences maximum). Address the user as 'sir'."
 )
 
@@ -368,7 +368,7 @@ class Brain:
                 ).strip()
 
             if msg and not is_generative_intent(msg):
-                group_name = "DEBAYAN PATHAK IS GOING TO ENGLAND BABES (BO'O'WOER)"
+                group_name = "BLACKBIRD FLY"
                 self.voice.speak("Sending your message to the group on WhatsApp, sir.")
                 res = TOOL_FUNCTION_MAP["send_whatsapp_message"](group_name, msg)
                 safe_print(f"  JARVIS: {res}")

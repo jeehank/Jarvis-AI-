@@ -238,14 +238,14 @@ def like_current_post(platform: str = "instagram") -> str:
 
 # WhatsApp Contact and Group Aliases
 WHATSAPP_CONTACT_ALIASES = {
-    "group": "DEBAYAN PATHAK IS GOING TO ENGLAND BABES (BO'O'WOER)",
-    "the group": "DEBAYAN PATHAK IS GOING TO ENGLAND BABES (BO'O'WOER)",
-    "a group": "DEBAYAN PATHAK IS GOING TO ENGLAND BABES (BO'O'WOER)",
-    "my group": "DEBAYAN PATHAK IS GOING TO ENGLAND BABES (BO'O'WOER)",
-    "debayan group": "DEBAYAN PATHAK IS GOING TO ENGLAND BABES (BO'O'WOER)",
-    "debayan": "DEBAYAN PATHAK IS GOING TO ENGLAND BABES (BO'O'WOER)",
-    "debayan pathak": "DEBAYAN PATHAK IS GOING TO ENGLAND BABES (BO'O'WOER)",
-    "england group": "DEBAYAN PATHAK IS GOING TO ENGLAND BABES (BO'O'WOER)",
+    "group": "BLACKBIRD FLY",
+    "the group": "BLACKBIRD FLY",
+    "a group": "BLACKBIRD FLY",
+    "my group": "BLACKBIRD FLY",
+    "debayan group": "BLACKBIRD FLY",
+    "debayan": "BLACKBIRD FLY",
+    "debayan pathak": "BLACKBIRD FLY",
+    "england group": "BLACKBIRD FLY",
 }
 
 

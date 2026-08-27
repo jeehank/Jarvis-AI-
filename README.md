@@ -31,7 +31,7 @@ To ensure Jarvis never cuts you off mid-sentence:
 | --- | --- |
 | **Turn on / Wake up** | "Jarvis, turn on, over" / "Jarvis, wake up, over" *(powers display on and brings workstation active)* |
 | **Sleep display** | "Jarvis, go to sleep, over" / "Jarvis, sleep, over" *(puts monitors to sleep while remaining listening)* |
-| **Group WhatsApp messages** | "Jarvis, text in the group saying party tonight at 8, over" *(auto-targets `DEBAYAN PATHAK IS GOING TO ENGLAND BABES (BO'O'WOER)`)* |
+| **Group WhatsApp messages** | "Jarvis, text in the group saying party tonight at 8, over" *(auto-targets `BLACKBIRD FLY`)* |
 | **AI-Generated messages** | "Jarvis, generate an appreciation message and send it to Abhirup on WhatsApp, over" |
 | **Direct WhatsApp messages** | "Jarvis, message Abhirup on WhatsApp saying are you free to talk, over" |
 | **Instagram DMs** | "Jarvis, message Sohani on Instagram saying hey, over" |
