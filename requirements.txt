@@ -9,3 +9,4 @@ pyaudio>=0.2.13
 pyautogui>=0.9.54
 pycaw>=20240210
 requests>=2.31.0
+pillow>=10.0.0

@@ -1,12 +1,13 @@
 """
 Jarvis Interactive Voice AI Agent
-Continuous wake-word listening, Gemini AI Brain with Function Calling, and ElevenLabs TTS Voice.
+Ultra-low-latency continuous wake-word listening, Fast Intent Dispatcher, Gemini AI Brain, and ElevenLabs TTS Voice.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import re
 import sys
 import threading
 from pathlib import Path
@@ -24,7 +25,7 @@ from elevenlabs.client import ElevenLabs
 _ENV_PATH = Path(__file__).resolve().parent / ".env"
 load_dotenv(_ENV_PATH)
 
-from jarvis_tools import JARVIS_TOOL_DECLARATIONS, TOOL_FUNCTION_MAP
+from jarvis_tools import JARVIS_TOOL_DECLARATIONS, TOOL_FUNCTION_MAP, ACCOUNT_URLS
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,19 +39,19 @@ You have full access to tools on the user's Windows computer to perform actions 
 
 Guidelines:
 1. When asked to perform computer tasks, always use the appropriate tool.
-2. Keep your spoken responses concise, witty, elegant, and natural.
+2. Keep your spoken responses concise, witty, elegant, and natural (1-2 sentences maximum).
 3. Address the user respectfully as 'sir' or by context.
-4. If a task is completed, confirm it in a brief, pleasant sentence.
 """
 
 
 class JarvisVoice:
-    """Handles Text-To-Speech output using ElevenLabs."""
+    """Handles Text-To-Speech output using ElevenLabs with optimized low latency."""
 
     def __init__(self) -> None:
         self.api_key: str = (os.environ.get("ELEVENLABS_API_KEY") or "").strip()
         self.voice_id: str = (os.environ.get("ELEVENLABS_VOICE_ID") or "JBFqnCBsd6RMkjVDRZzb").strip()
-        self.model_id: str = (os.environ.get("ELEVENLABS_MODEL_ID") or "eleven_multilingual_v2").strip()
+        # Default to turbo for 3x faster response time
+        self.model_id: str = (os.environ.get("ELEVENLABS_MODEL_ID") or "eleven_turbo_v2_5").strip()
         self.output_format: str = (os.environ.get("ELEVENLABS_OUTPUT_FORMAT") or "pcm_24000").strip()
         self.pcm_rate: int = 24000
         self.client: Optional[ElevenLabs] = None
@@ -90,7 +91,7 @@ class JarvisVoice:
 
 
 class JarvisBrain:
-    """Handles conversation, intent understanding, and function calling with Gemini LLM."""
+    """Handles conversation, fast-path intent routing, and Gemini LLM function calling."""
 
     def __init__(self) -> None:
         self.gemini_key: str = (os.environ.get("GEMINI_API_KEY") or "").strip()
@@ -109,15 +110,101 @@ class JarvisBrain:
             log.warning("No GEMINI_API_KEY found in .env.")
 
     def process_command(self, user_text: str) -> str:
-        """Process user input with Gemini and execute any triggered tools."""
-        if not user_text.strip():
+        """Process user input with Fast-Path Router for instant execution or Gemini LLM for complex tasks."""
+        clean_text = user_text.strip()
+        if not clean_text:
             return ""
 
-        if not self.client:
-            return self._fallback_rule_engine(user_text)
+        # 1. Fast-Path Router: Instant sub-second execution for common PC commands
+        fast_result = self._fast_path_router(clean_text)
+        if fast_result:
+            return fast_result
 
+        # 2. LLM Brain with Gemini for complex conversations & dynamic reasoning
+        if self.client:
+            return self._process_gemini(clean_text)
+
+        return "I am awaiting instructions, sir."
+
+    def _fast_path_router(self, text: str) -> Optional[str]:
+        """Instant zero-latency command parser for common PC tasks."""
+        t = text.lower().strip()
+        # Remove wake words from query
+        t_clean = re.sub(r"^(hey\s+)?jarvis[\s,]*", "", t, flags=re.IGNORECASE).strip()
+        if not t_clean:
+            return "Yes sir, I'm here. What can I do for you?"
+
+        # Instant Media Play: "play [song name]" or "play [song] by [artist]"
+        if t_clean.startswith("play "):
+            song_query = t_clean[5:].strip()
+            if song_query:
+                # Launch playback in background thread immediately so it doesn't block
+                threading.Thread(target=TOOL_FUNCTION_MAP["play_youtube_video"], args=(song_query,), daemon=True).start()
+                return f"Playing {song_query.title()} for you now, sir."
+
+        # Instant Volume: "set volume to X", "volume X", "turn up/down volume"
+        if "volume" in t_clean:
+            # Check numbers
+            digits = re.findall(r"\d+", t_clean)
+            if digits:
+                vol_num = int(digits[0])
+                TOOL_FUNCTION_MAP["set_system_volume"](vol_num)
+                return f"System volume set to {vol_num}%, sir."
+            if "up" in t_clean or "increase" in t_clean or "higher" in t_clean:
+                TOOL_FUNCTION_MAP["set_system_volume"](85)
+                return "Turning volume up to 85%, sir."
+            if "down" in t_clean or "decrease" in t_clean or "lower" in t_clean:
+                TOOL_FUNCTION_MAP["set_system_volume"](30)
+                return "Lowered volume to 30%, sir."
+            if "mute" in t_clean:
+                TOOL_FUNCTION_MAP["system_action"]("mute")
+                return "Audio muted, sir."
+            if "unmute" in t_clean:
+                TOOL_FUNCTION_MAP["system_action"]("unmute")
+                return "Audio unmuted, sir."
+
+        # Instant App / Account Opener: "open [name]"
+        if t_clean.startswith("open "):
+            target = t_clean[5:].replace("my ", "").replace("the ", "").strip()
+            # Check websites/accounts
+            if target in ACCOUNT_URLS or any(k in target for k in ACCOUNT_URLS):
+                for k in ACCOUNT_URLS:
+                    if k in target:
+                        TOOL_FUNCTION_MAP["open_website"](k)
+                        return f"Opening {k.capitalize()} for you, sir."
+            # Check folders
+            if target in ("downloads", "documents", "desktop", "pictures", "videos", "music"):
+                TOOL_FUNCTION_MAP["open_folder"](target)
+                return f"Opening your {target.capitalize()} folder, sir."
+            # Check apps
+            TOOL_FUNCTION_MAP["open_application"](target)
+            return f"Opening {target.title()}, sir."
+
+        # Instant Screenshot
+        if "screenshot" in t_clean:
+            TOOL_FUNCTION_MAP["take_screenshot"]()
+            return "Screenshot captured and saved, sir."
+
+        # Instant Desktop / Lock
+        if "show desktop" in t_clean or "minimize all" in t_clean:
+            TOOL_FUNCTION_MAP["system_action"]("minimize_all")
+            return "Showing desktop, sir."
+        if "lock pc" in t_clean or "lock computer" in t_clean:
+            TOOL_FUNCTION_MAP["system_action"]("lock")
+            return "Locking workstation, sir."
+
+        # Instant Google Search
+        if t_clean.startswith("search ") or t_clean.startswith("google "):
+            q = re.sub(r"^(search|google)(\s+for)?\s+", "", t_clean).strip()
+            if q:
+                TOOL_FUNCTION_MAP["search_google"](q)
+                return f"Searching Google for {q}, sir."
+
+        return None
+
+    def _process_gemini(self, user_text: str) -> str:
+        """Process complex query or multi-step reasoning with Gemini 3.6 Flash."""
         try:
-            # Map tools to Gemini function declarations
             tools_spec = [
                 types.Tool(
                     function_declarations=[
@@ -136,7 +223,7 @@ class JarvisBrain:
 
             config = types.GenerateContentConfig(
                 system_instruction=SYSTEM_PROMPT,
-                temperature=0.7,
+                temperature=0.6,
                 tools=tools_spec
             )
 
@@ -146,8 +233,9 @@ class JarvisBrain:
                 config=config,
             )
 
-            # Check if model requested tool execution
+            # Check if tool calling was triggered
             if response.function_calls:
+                tool_confirmations = []
                 for call in response.function_calls:
                     fn_name = call.name
                     fn_args: Dict[str, Any] = call.args or {}
@@ -155,34 +243,15 @@ class JarvisBrain:
 
                     if fn_name in TOOL_FUNCTION_MAP:
                         tool_result = TOOL_FUNCTION_MAP[fn_name](**fn_args)
+                        tool_confirmations.append(tool_result)
                     else:
-                        tool_result = f"Tool {fn_name} not recognized."
+                        tool_confirmations.append(f"Tool {fn_name} not recognized.")
 
-                    # Send result back to model for final natural reply
-                    if response.candidates:
-                        self.chat_history.append(response.candidates[0].content)
-                    
-                    self.chat_history.append(
-                        types.Content(
-                            role="user",
-                            parts=[
-                                types.Part.from_function_response(
-                                    name=fn_name,
-                                    response={"result": tool_result}
-                                )
-                            ]
-                        )
-                    )
+                if response.candidates:
+                    self.chat_history.append(response.candidates[0].content)
 
-                    follow_up = self.client.models.generate_content(
-                        model="gemini-3.6-flash",
-                        contents=self.chat_history,
-                        config=config,
-                    )
-                    reply_text = follow_up.text or f"Done, sir. {tool_result}"
-                    if follow_up.candidates:
-                        self.chat_history.append(follow_up.candidates[0].content)
-                    return reply_text
+                # Format fast confirmation without redundant 2nd LLM roundtrip
+                return f"Right away, sir. {' '.join(tool_confirmations)}"
 
             reply_text = response.text or "Right away, sir."
             if response.candidates:
@@ -191,59 +260,21 @@ class JarvisBrain:
 
         except Exception as e:
             log.error("Gemini API error: %s", e)
-            return self._fallback_rule_engine(user_text)
-
-    def _fallback_rule_engine(self, user_text: str) -> str:
-        """Fast fallback rule engine."""
-        t = user_text.lower()
-        if "volume" in t:
-            words = t.split()
-            for w in words:
-                if w.isdigit():
-                    return TOOL_FUNCTION_MAP["set_system_volume"](int(w))
-            if "up" in t or "increase" in t:
-                return TOOL_FUNCTION_MAP["set_system_volume"](80)
-            elif "down" in t or "lower" in t:
-                return TOOL_FUNCTION_MAP["set_system_volume"](30)
-            elif "mute" in t:
-                return TOOL_FUNCTION_MAP["system_action"]("mute")
-        if "instagram" in t:
-            return TOOL_FUNCTION_MAP["open_website"]("instagram")
-        if "youtube" in t:
-            if "play" in t or "search" in t:
-                q = t.replace("play", "").replace("search", "").replace("youtube", "").replace("on", "").replace("jarvis", "").strip()
-                return TOOL_FUNCTION_MAP["play_youtube_search"](q or "lofi music")
-            return TOOL_FUNCTION_MAP["open_website"]("youtube")
-        if "spotify" in t:
-            return TOOL_FUNCTION_MAP["open_application"]("Spotify")
-        if "gmail" in t or "email" in t:
-            return TOOL_FUNCTION_MAP["open_website"]("gmail")
-        if "github" in t:
-            return TOOL_FUNCTION_MAP["open_website"]("github")
-        if "cursor" in t or "code" in t or "editor" in t:
-            return TOOL_FUNCTION_MAP["open_application"]("Cursor")
-        if "screenshot" in t:
-            return TOOL_FUNCTION_MAP["take_screenshot"]()
-        if "lock" in t:
-            return TOOL_FUNCTION_MAP["system_action"]("lock")
-        if "desktop" in t or "minimize" in t:
-            return TOOL_FUNCTION_MAP["system_action"]("minimize_all")
-        if "google" in t or "search" in t:
-            q = t.replace("google", "").replace("search", "").replace("for", "").replace("jarvis", "").strip()
-            return TOOL_FUNCTION_MAP["search_google"](q)
-
-        return "Right away, sir."
+            return "I apologize, sir; there was a momentary network interruption."
 
 
 class JarvisContinuousListener:
-    """Continuously listens to the microphone and triggers only when 'jarvis' is called."""
+    """Continuously listens to the microphone with snappy silence detection."""
 
     def __init__(self, wake_word: str = "jarvis") -> None:
         self.wake_word: str = wake_word.lower()
         self.recognizer: sr.Recognizer = sr.Recognizer()
-        self.recognizer.energy_threshold = 280
+        # Tuning for ultra-responsive speech recognition
+        self.recognizer.energy_threshold = 260
         self.recognizer.dynamic_energy_threshold = True
-        self.recognizer.pause_threshold = 0.8
+        self.recognizer.pause_threshold = 0.55  # Snappy stop detection
+        self.recognizer.phrase_threshold = 0.2
+        self.recognizer.non_speaking_duration = 0.4
         self.is_running: bool = True
 
     def listen_loop(self, on_command: Any) -> None:
@@ -251,15 +282,15 @@ class JarvisContinuousListener:
         try:
             with sr.Microphone() as source:
                 log.info("Calibrating microphone for room acoustics...")
-                self.recognizer.adjust_for_ambient_noise(source, duration=1.0)
+                self.recognizer.adjust_for_ambient_noise(source, duration=0.8)
                 log.info("Continuous listening ACTIVE. Say '%s ...' anytime!", self.wake_word.upper())
 
                 while self.is_running:
                     try:
-                        # Listen in continuous chunks
-                        audio = self.recognizer.listen(source, timeout=3.0, phrase_time_limit=8.0)
+                        # Listen in short responsive chunks
+                        audio = self.recognizer.listen(source, timeout=2.5, phrase_time_limit=7.0)
                         text = self.recognizer.recognize_google(audio).strip()
-                        
+
                         if not text:
                             continue
 
@@ -267,10 +298,8 @@ class JarvisContinuousListener:
                         # Check if wake word 'jarvis' was spoken
                         if self.wake_word in text_lower:
                             log.info("⚡ Wake word detected! Prompt: %r", text)
-                            # Strip wake word if needed or pass directly
                             on_command(text)
                         else:
-                            # Heard sound/speech but not addressing Jarvis -> ignore
                             log.debug("Heard non-wake speech: %r", text)
 
                     except sr.WaitTimeoutError:
@@ -286,12 +315,14 @@ class JarvisContinuousListener:
 
 
 def run_interactive_jarvis() -> None:
-    """Main interactive Jarvis loop with continuous wake-word detection."""
+    """Main interactive Jarvis loop."""
     print("=" * 65)
-    print("⚡ JARVIS CONTINUOUS VOICE ASSISTANT ONLINE ⚡")
+    print("⚡ JARVIS ULTRA-FAST VOICE ASSISTANT ONLINE ⚡")
     print("=" * 65)
     print("• Listening continuously in the background.")
-    print("• Jarvis only speaks when you call his name: 'Hey Jarvis ...'")
+    print("• Say: 'Jarvis, play Let It Happen by Tame Impala'")
+    print("• Say: 'Jarvis, open Instagram / Spotify / YouTube'")
+    print("• Say: 'Jarvis, set volume to 50%'")
     print("• Type any command directly below at any time.")
     print("• Say or type 'exit' / 'quit' to stop.")
     print("=" * 65)
@@ -304,7 +335,7 @@ def run_interactive_jarvis() -> None:
         if not cmd.strip():
             return
         print(f"\nYou > {cmd}")
-        
+
         if cmd.lower() in ("exit", "quit", "goodbye", "bye jarvis", "stop jarvis"):
             farewell = "Powering down systems. Have a wonderful day, sir."
             print(f"JARVIS: {farewell}")
@@ -312,16 +343,18 @@ def run_interactive_jarvis() -> None:
             listener.is_running = False
             sys.exit(0)
 
+        # Process command with instant feedback
+        print("⚡ Processing...")
         response = brain.process_command(cmd)
         print(f"JARVIS: {response}\n")
         voice.speak(response)
 
     # Initial greeting
-    greeting = "Online and listening, sir. Whenever you need me, just say Jarvis."
+    greeting = "Online and at your service, sir. Just say Jarvis whenever you need me."
     print(f"\nJARVIS: {greeting}\n")
     voice.speak(greeting)
 
-    # Start continuous microphone listener on a background thread
+    # Start continuous microphone listener on background thread
     mic_thread = threading.Thread(
         target=listener.listen_loop,
         args=(handle_command,),
