@@ -198,12 +198,24 @@ def play_youtube_video(query: str) -> str:
     return f"Opened YouTube search for '{q_clean}'."
 
 
-# Specific Instagram contact direct thread URLs
+# Specific Instagram contact direct thread URLs and nicknames
 INSTAGRAM_CONTACT_URLS = {
+    # Sohani
     "sohani": "https://www.instagram.com/direct/t/17842231331975509/",
+    "sohu": "https://www.instagram.com/direct/t/17842231331975509/",
+    "soha": "https://www.instagram.com/direct/t/17842231331975509/",
+
+    # Abhirup / Abhiroop / Abhi
+    "abhi": "https://www.instagram.com/direct/t/17843980718954777/",
     "abhirup": "https://www.instagram.com/direct/t/17843980718954777/",
     "abhiroop": "https://www.instagram.com/direct/t/17843980718954777/",
+    "abirup": "https://www.instagram.com/direct/t/17843980718954777/",
+    "abiroop": "https://www.instagram.com/direct/t/17843980718954777/",
+
+    # Sampriti / Sam / Samp
     "sampriti": "https://www.instagram.com/direct/t/17845065615183091/",
+    "sam": "https://www.instagram.com/direct/t/17845065615183091/",
+    "samp": "https://www.instagram.com/direct/t/17845065615183091/",
 }
 
 
