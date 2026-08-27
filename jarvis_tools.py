@@ -202,6 +202,7 @@ def play_youtube_video(query: str) -> str:
 INSTAGRAM_CONTACT_URLS = {
     "sohani": "https://www.instagram.com/direct/t/17842231331975509/",
     "abhirup": "https://www.instagram.com/direct/t/17843980718954777/",
+    "abhiroop": "https://www.instagram.com/direct/t/17843980718954777/",
     "sampriti": "https://www.instagram.com/direct/t/17845065615183091/",
 }
 
@@ -288,22 +289,84 @@ def like_current_post(platform: str = "instagram") -> str:
         return f"Could not like post: {e}"
 
 
-def send_whatsapp_message(contact_or_number: str, message: str) -> str:
-    """Opens WhatsApp and prepares or sends a message to a contact or phone number."""
-    contact_clean = contact_or_number.strip()
-    msg_encoded = urllib.parse.quote(message.strip())
+def send_whatsapp_message(contact_or_number: str, message: str, use_app: bool = True) -> str:
+    """Opens WhatsApp (Desktop App or Web), searches the contact, types the message, and sends it."""
+    import pyperclip
+    import threading
 
-    # Check if contact is a phone number (digits only or starts with +)
+    contact_clean = contact_or_number.strip()
+    msg_to_send = message.strip() if message.strip() else "hey im jarvis"
+
+    # Check if contact is a direct phone number
     phone_digits = re.sub(r"[^\d+]", "", contact_clean)
     if len(phone_digits) >= 10:
-        url = f"https://web.whatsapp.com/send?phone={phone_digits}&text={msg_encoded}"
+        url = f"https://web.whatsapp.com/send?phone={phone_digits}&text={urllib.parse.quote(msg_to_send)}"
         webbrowser.open(url)
-        return f"Opened WhatsApp chat for {contact_clean} with your message."
+        def _send_web_num():
+            time.sleep(5.5)
+            pyautogui.press("enter")
+        threading.Thread(target=_send_web_num, daemon=True).start()
+        return f"Opened WhatsApp chat for {contact_clean} and queued message: '{msg_to_send}'."
 
-    # Contact Name: Open WhatsApp Web / App
-    url = f"https://web.whatsapp.com/send?text={msg_encoded}"
-    webbrowser.open(url)
-    return f"Opened WhatsApp with your message for {contact_clean}."
+    if use_app and sys.platform == "win32":
+        # Launch Windows WhatsApp Desktop App
+        try:
+            subprocess.Popen(["explorer.exe", r"shell:AppsFolder\5319275A.WhatsAppDesktop_cv1g1gvanyjgm!App"])
+        except Exception:
+            subprocess.Popen(["cmd.exe", "/c", "start", "whatsapp:"], shell=True)
+
+        def _send_app():
+            try:
+                # Wait for WhatsApp window to focus
+                time.sleep(3.0)
+                # Press Ctrl + F to focus search bar
+                pyautogui.hotkey("ctrl", "f")
+                time.sleep(0.4)
+                # Type contact name
+                pyperclip.copy(contact_clean)
+                pyautogui.hotkey("ctrl", "v")
+                time.sleep(1.2)
+                # Select top contact result
+                pyautogui.press("down")
+                time.sleep(0.2)
+                pyautogui.press("enter")
+                time.sleep(0.8)
+                # Paste message into chat box
+                pyperclip.copy(msg_to_send)
+                pyautogui.hotkey("ctrl", "v")
+                time.sleep(0.3)
+                # Send message
+                pyautogui.press("enter")
+                log.info("Sent WhatsApp Desktop message to %s: %r", contact_clean, msg_to_send)
+            except Exception as e:
+                log.warning("WhatsApp desktop send error: %s", e)
+
+        threading.Thread(target=_send_app, daemon=True).start()
+        return f"Opened WhatsApp Desktop, searched for {contact_clean}, and sent your message: '{msg_to_send}'."
+
+    else:
+        # WhatsApp Web fallback
+        url = f"https://web.whatsapp.com"
+        webbrowser.open(url)
+        def _send_web():
+            try:
+                time.sleep(5.0)
+                pyautogui.hotkey("ctrl", "alt", "/")
+                time.sleep(0.4)
+                pyperclip.copy(contact_clean)
+                pyautogui.hotkey("ctrl", "v")
+                time.sleep(1.5)
+                pyautogui.press("enter")
+                time.sleep(0.8)
+                pyperclip.copy(msg_to_send)
+                pyautogui.hotkey("ctrl", "v")
+                time.sleep(0.3)
+                pyautogui.press("enter")
+            except Exception as e:
+                log.warning("WhatsApp web send error: %s", e)
+
+        threading.Thread(target=_send_web, daemon=True).start()
+        return f"Opened WhatsApp Web and sent message to {contact_clean}."
 
 
 def send_email_compose(recipient: str = "", subject: str = "", body: str = "") -> str:
@@ -334,29 +397,38 @@ def send_instagram_dm_message(contact_or_username: str, message: str = "") -> st
 
     webbrowser.open(target_url)
 
-    # If message is provided, type and send it
+    # Message text
     msg_to_send = message.strip() if message.strip() else "hey im jarvis"
 
     def _auto_type_and_send():
         try:
             # Wait for Instagram chat UI to load
-            time.sleep(4.0)
-            # Focus message input box in Instagram web (bottom area)
+            time.sleep(4.5)
             sw, sh = pyautogui.size()
-            pyautogui.click(sw // 2, sh - 80)
+            
+            # Click message input box in Instagram Direct chat
+            # (In Instagram web, chat pane input is in bottom right pane: ~65% width, ~93% height)
+            input_x = int(sw * 0.65)
+            input_y = int(sh * 0.93)
+            pyautogui.click(input_x, input_y)
             time.sleep(0.3)
+            
             # Paste text
             pyperclip.copy(msg_to_send)
             pyautogui.hotkey("ctrl", "v")
-            time.sleep(0.3)
+            time.sleep(0.4)
             # Press enter to send
+            pyautogui.press("enter")
+            time.sleep(0.3)
+            
+            # Secondary check in case focus needed extra click
             pyautogui.press("enter")
             log.info("Sent Instagram DM to %s: %r", display_name, msg_to_send)
         except Exception as e:
             log.warning("Auto-send Instagram DM error: %s", e)
 
     threading.Thread(target=_auto_type_and_send, daemon=True).start()
-    return f"Opened Instagram Direct chat with {display_name} and sent message: '{msg_to_send}'."
+    return f"Opened Instagram chat with {display_name} and sent your message: '{msg_to_send}'."
 
 
 def capture_desktop_image() -> Optional[Image.Image]:
