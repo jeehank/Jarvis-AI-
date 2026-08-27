@@ -5,21 +5,20 @@ Orchestrates Speech-to-Text, Gemini AI Brain with Function Calling, and ElevenLa
 
 from __future__ import annotations
 
-import os
-import sys
-import time
 import logging
+import os
 from pathlib import Path
+from typing import Optional
 
 from dotenv import load_dotenv
 import numpy as np
 import sounddevice as sd
 
-# Load .env
-env_path = Path(__file__).resolve().parent / ".env"
-load_dotenv(env_path)
+# Load .env before importing tools (tools may read env vars at import time)
+_ENV_PATH = Path(__file__).resolve().parent / ".env"
+load_dotenv(_ENV_PATH)
 
-from jarvis_tools import JARVIS_TOOL_DECLARATIONS, TOOL_FUNCTION_MAP
+from jarvis_tools import JARVIS_TOOL_DECLARATIONS, TOOL_FUNCTION_MAP  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -246,7 +245,7 @@ class JarvisListener:
         except ImportError:
             log.warning("speech_recognition not installed.")
 
-    def listen_once(self) -> str | None:
+    def listen_once(self) -> Optional[str]:
         """Capture one spoken phrase from the microphone."""
         if not self.recognizer:
             return None
