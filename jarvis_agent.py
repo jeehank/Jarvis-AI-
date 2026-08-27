@@ -263,19 +263,8 @@ class Brain:
             safe_print(f"  JARVIS: {res}")
             return True
 
-        # 2. Explicit desktop app launch: "open whatsapp app" / "open whatsapp desktop"
-        if any(w in t for w in ("app", "desktop", "application")):
-            self.voice.speak("Opening WhatsApp Desktop, sir.")
-            TOOL_FUNCTION_MAP["open_whatsapp"]("app")
-            return True
-
-        # 3. Simple open: "open whatsapp", "launch whatsapp"
-        if t.strip() in ("open whatsapp", "launch whatsapp", "whatsapp", "open whatsapp web"):
-            self.voice.speak("Opening WhatsApp for you, sir.")
-            TOOL_FUNCTION_MAP["open_whatsapp"]("web")
-            return True
-
-        # 4. Standard message templates with explicit keyword delimiters
+        # 2. Standard message templates with explicit keyword delimiters:
+        # e.g. "message [contact] on whatsapp saying [msg]" / "send a message to [contact] on whatsapp saying [msg]"
         m1 = re.search(r"(?:send\s+(?:a\s+)?message\s+to|message|text|tell)\s+([a-zA-Z0-9_+]+)(?:\s+on\s+whatsapp)?\s+(?:saying|that|text)\s+(.+)", t)
         if m1:
             contact, msg = m1.group(1), m1.group(2).strip()
@@ -293,6 +282,18 @@ class Brain:
                 res = TOOL_FUNCTION_MAP["send_whatsapp_message"](contact, msg)
                 safe_print(f"  JARVIS: {res}")
                 return True
+
+        # 3. Explicit desktop app launch (check standalone words, NOT substring of 'whatsapp'!)
+        if re.search(r"\b(desktop\s+app|whatsapp\s+desktop|whatsapp\s+app)\b", t):
+            self.voice.speak("Opening WhatsApp Desktop, sir.")
+            TOOL_FUNCTION_MAP["open_whatsapp"]("app")
+            return True
+
+        # 4. Simple open: "open whatsapp", "launch whatsapp"
+        if t.strip() in ("open whatsapp", "launch whatsapp", "whatsapp", "open whatsapp web"):
+            self.voice.speak("Opening WhatsApp for you, sir.")
+            TOOL_FUNCTION_MAP["open_whatsapp"]("web")
+            return True
 
         # For all other phrasings, return False so Groq's 120B model extracts contact and message with 100% accuracy
         return False
