@@ -1,12 +1,14 @@
 """
-Jarvis Computer Control Tools
-Exposes Python functions and tool declarations for LLM function calling.
+Jarvis Computer Control & Multimodal Tools
+Exposes Python functions and tool declarations for LLM function calling and screen vision.
 """
 
 from __future__ import annotations
 
+import io
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -14,7 +16,9 @@ import time
 import urllib.parse
 import webbrowser
 from pathlib import Path
+from typing import Optional
 
+from PIL import Image
 import pyautogui
 from pycaw.pycaw import AudioUtilities
 
@@ -33,11 +37,11 @@ ACCOUNT_URLS = {
     "google": "https://www.google.com",
     "github": "https://github.com",
     "discord": "https://discord.com/app",
+    "whatsapp": "https://web.whatsapp.com",
     "twitter": "https://x.com",
     "x": "https://x.com",
     "chatgpt": "https://chatgpt.com",
     "claude": "https://claude.ai",
-    "whatsapp": "https://web.whatsapp.com",
     "netflix": "https://www.netflix.com",
     "amazon": "https://www.amazon.com",
     "reddit": "https://www.reddit.com",
@@ -48,13 +52,13 @@ ACCOUNT_URLS = {
 def open_website(url_or_service: str) -> str:
     """Open any website, social media, or account URL (e.g. YouTube, Instagram, Gmail, GitHub, Spotify, Discord, Netflix)."""
     clean = url_or_service.strip().lower()
-    
+
     # Check predefined accounts / websites
     if clean in ACCOUNT_URLS:
         target_url = ACCOUNT_URLS[clean]
         webbrowser.open(target_url)
         return f"Opened {clean.capitalize()} in your browser."
-    
+
     # Direct URL
     target_url = url_or_service.strip()
     if not target_url.startswith(("http://", "https://")):
@@ -83,6 +87,7 @@ def open_application(app_name: str) -> str:
         "task manager": "taskmgr.exe",
         "taskmgr": "taskmgr.exe",
         "paint": "mspaint.exe",
+        "whatsapp": "whatsapp:",
     }
 
     if app_lower in win_apps:
@@ -142,7 +147,7 @@ def open_folder(folder_name: str) -> str:
     """Open special Windows folders like 'downloads', 'documents', 'desktop', 'pictures', 'videos', or any custom directory path."""
     f = folder_name.lower().strip()
     user_home = Path.home()
-    
+
     special_folders = {
         "downloads": user_home / "Downloads",
         "documents": user_home / "Documents",
@@ -165,12 +170,11 @@ def open_folder(folder_name: str) -> str:
 
 def play_youtube_video(query: str) -> str:
     """Directly search, open, and start playing the top matching video or song on YouTube."""
-    import re
     import urllib.request
     q_clean = query.strip()
     encoded = urllib.parse.quote_plus(q_clean)
     search_url = f"https://www.youtube.com/results?search_query={encoded}"
-    
+
     # Attempt to extract the first video ID so the video starts playing immediately
     try:
         req = urllib.request.Request(search_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
@@ -187,6 +191,137 @@ def play_youtube_video(query: str) -> str:
     # Fallback to search results page
     webbrowser.open(search_url)
     return f"Opened YouTube search for '{q_clean}'."
+
+
+def like_current_post(platform: str = "instagram") -> str:
+    """Likes the post, reel, or video currently visible on screen (Instagram, YouTube, Twitter/X)."""
+    p = platform.lower().strip()
+    try:
+        # Instagram like action: 'L' keyboard shortcut + double click center of screen
+        if "insta" in p:
+            # 1. Press 'l' key (Instagram web shortcut to like focused post)
+            pyautogui.press("l")
+            # 2. Also double click near center where post/reel is displayed
+            sw, sh = pyautogui.size()
+            cx, cy = sw // 2, sh // 2
+            pyautogui.doubleClick(cx, cy)
+            return "Liked the active Instagram post."
+
+        elif "x" in p or "twitter" in p:
+            pyautogui.press("l")
+            return "Liked the active post on X."
+
+        elif "youtube" in p:
+            # YouTube like button shortcut or coordinate
+            pyautogui.press("i")
+            return "Interacted with YouTube video."
+
+        else:
+            # Generic double click
+            sw, sh = pyautogui.size()
+            pyautogui.doubleClick(sw // 2, sh // 2)
+            return "Liked the active post."
+
+    except Exception as e:
+        return f"Could not like post: {e}"
+
+
+def send_whatsapp_message(contact_or_number: str, message: str) -> str:
+    """Opens WhatsApp and prepares or sends a message to a contact or phone number."""
+    contact_clean = contact_or_number.strip()
+    msg_encoded = urllib.parse.quote(message.strip())
+
+    # Check if contact is a phone number (digits only or starts with +)
+    phone_digits = re.sub(r"[^\d+]", "", contact_clean)
+    if len(phone_digits) >= 10:
+        url = f"https://web.whatsapp.com/send?phone={phone_digits}&text={msg_encoded}"
+        webbrowser.open(url)
+        return f"Opened WhatsApp chat for {contact_clean} with your message."
+
+    # Contact Name: Open WhatsApp Web / App
+    url = f"https://web.whatsapp.com/send?text={msg_encoded}"
+    webbrowser.open(url)
+    return f"Opened WhatsApp with your message for {contact_clean}."
+
+
+def send_email_compose(recipient: str = "", subject: str = "", body: str = "") -> str:
+    """Opens Gmail compose window with recipient, subject, and body pre-filled."""
+    rec_encoded = urllib.parse.quote(recipient.strip())
+    sub_encoded = urllib.parse.quote(subject.strip())
+    body_encoded = urllib.parse.quote(body.strip())
+    
+    url = f"https://mail.google.com/mail/u/0/?fs=1&tf=cm&to={rec_encoded}&su={sub_encoded}&body={body_encoded}"
+    webbrowser.open(url)
+    return f"Opened Gmail compose draft to {recipient or 'recipient'} with subject '{subject}'."
+
+
+def send_instagram_dm(username: str, message: str = "") -> str:
+    """Opens Instagram direct message chat with a user."""
+    u_clean = username.strip().replace("@", "")
+    url = f"https://www.instagram.com/direct/t/{u_clean}/" if u_clean else "https://www.instagram.com/direct/inbox/"
+    webbrowser.open(url)
+    return f"Opened Instagram Direct Message for @{u_clean}."
+
+
+def see_and_analyze_screen(question_or_instruction: str) -> str:
+    """Takes a live screenshot and uses Gemini Vision to see what is on screen and answer questions or describe it."""
+    try:
+        from google import genai
+        from google.genai import types
+        gemini_key = (os.environ.get("GEMINI_API_KEY") or "").strip()
+        if not gemini_key:
+            return "Gemini API key is required to view screen."
+
+        # Take screenshot
+        screenshot = pyautogui.screenshot()
+        # Resize slightly for ultra-fast vision transfer
+        screenshot.thumbnail((1280, 720))
+        img_byte_arr = io.BytesIO()
+        screenshot.save(img_byte_arr, format="JPEG", quality=80)
+        img_bytes = img_byte_arr.getvalue()
+
+        client = genai.Client(api_key=gemini_key)
+        prompt = f"Look at this live screenshot of the user's computer screen. Answer concisely: {question_or_instruction}"
+        
+        response = client.models.generate_content(
+            model="gemini-3.6-flash",
+            contents=[
+                types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg"),
+                prompt
+            ]
+        )
+        return response.text or "I inspected your screen, sir."
+    except Exception as e:
+        log.error("Vision analysis error: %s", e)
+        return f"Could not analyze screen: {e}"
+
+
+def scroll_screen(direction: str = "down", amount: int = 5) -> str:
+    """Scroll the active window up or down (e.g. while reading reels, feeds, or documents)."""
+    d = direction.lower().strip()
+    clicks = max(1, int(amount)) * 120
+    try:
+        if d in ("up", "top"):
+            pyautogui.scroll(clicks)
+            return f"Scrolled up {amount} clicks."
+        else:
+            pyautogui.scroll(-clicks)
+            return f"Scrolled down {amount} clicks."
+    except Exception as e:
+        return f"Scroll failed: {e}"
+
+
+def click_on_screen(x: int, y: int, double_click: bool = False) -> str:
+    """Click specific coordinates on the screen."""
+    try:
+        if double_click:
+            pyautogui.doubleClick(x, y)
+            return f"Double clicked at ({x}, {y})."
+        else:
+            pyautogui.click(x, y)
+            return f"Clicked at ({x}, {y})."
+    except Exception as e:
+        return f"Failed to click: {e}"
 
 
 def search_google(query: str) -> str:
@@ -254,7 +389,7 @@ def press_keyboard_keys(hotkey: str) -> str:
 
 
 def type_keyboard_text(text: str, press_enter: bool = False) -> str:
-    """Type arbitrary text on the keyboard as if the user typed it."""
+    """Type arbitrary text on the keyboard into the currently focused window."""
     try:
         pyautogui.write(text, interval=0.02)
         if press_enter:
@@ -343,6 +478,107 @@ JARVIS_TOOL_DECLARATIONS = [
                 }
             },
             "required": ["query"]
+        }
+    },
+    {
+        "name": "like_current_post",
+        "description": "Likes the active post, reel, photo, or video currently visible on screen (on Instagram, Twitter/X, YouTube).",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "platform": {
+                    "type": "STRING",
+                    "description": "The platform name, e.g. 'instagram', 'x', 'youtube'."
+                }
+            }
+        }
+    },
+    {
+        "name": "send_whatsapp_message",
+        "description": "Opens WhatsApp and starts a chat or prepares a message for a specific contact or phone number.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "contact_or_number": {
+                    "type": "STRING",
+                    "description": "The contact name or phone number."
+                },
+                "message": {
+                    "type": "STRING",
+                    "description": "The message text to send."
+                }
+            },
+            "required": ["contact_or_number", "message"]
+        }
+    },
+    {
+        "name": "send_email_compose",
+        "description": "Opens Gmail compose draft with recipient, subject line, and body message pre-filled.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "recipient": {
+                    "type": "STRING",
+                    "description": "The recipient email address or name."
+                },
+                "subject": {
+                    "type": "STRING",
+                    "description": "The email subject line."
+                },
+                "body": {
+                    "type": "STRING",
+                    "description": "The email body text."
+                }
+            }
+        }
+    },
+    {
+        "name": "send_instagram_dm",
+        "description": "Opens Instagram Direct Message chat with a specific user.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "username": {
+                    "type": "STRING",
+                    "description": "The Instagram username without @."
+                },
+                "message": {
+                    "type": "STRING",
+                    "description": "Optional message text."
+                }
+            },
+            "required": ["username"]
+        }
+    },
+    {
+        "name": "see_and_analyze_screen",
+        "description": "Looks at the live computer screen using Gemini Vision to answer questions about what is displayed, read content, or inspect UI.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "question_or_instruction": {
+                    "type": "STRING",
+                    "description": "What to look for or analyze on screen."
+                }
+            },
+            "required": ["question_or_instruction"]
+        }
+    },
+    {
+        "name": "scroll_screen",
+        "description": "Scrolls the active window up or down (useful for feeds, Instagram, articles).",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "direction": {
+                    "type": "STRING",
+                    "description": "'up' or 'down'."
+                },
+                "amount": {
+                    "type": "INTEGER",
+                    "description": "How much to scroll (default 5)."
+                }
+            }
         }
     },
     {
@@ -447,6 +683,13 @@ TOOL_FUNCTION_MAP = {
     "open_application": open_application,
     "open_folder": open_folder,
     "play_youtube_video": play_youtube_video,
+    "like_current_post": like_current_post,
+    "send_whatsapp_message": send_whatsapp_message,
+    "send_email_compose": send_email_compose,
+    "send_instagram_dm": send_instagram_dm,
+    "see_and_analyze_screen": see_and_analyze_screen,
+    "scroll_screen": scroll_screen,
+    "click_on_screen": click_on_screen,
     "search_google": search_google,
     "set_system_volume": set_system_volume,
     "get_system_volume": get_system_volume,
