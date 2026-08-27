@@ -307,7 +307,7 @@ def send_whatsapp_message(contact_or_number: str, message: str, use_app: bool = 
     import threading
 
     contact_clean = contact_or_number.strip()
-    msg_to_send = message.strip() if message.strip() else "hey im jarvis"
+    msg_to_send = message.strip() if message.strip() else "hey"
 
     # Check if contact is a direct phone number
     phone_digits = re.sub(r"[^\d+]", "", contact_clean)
@@ -315,10 +315,10 @@ def send_whatsapp_message(contact_or_number: str, message: str, use_app: bool = 
         url = f"https://web.whatsapp.com/send?phone={phone_digits}&text={urllib.parse.quote(msg_to_send)}"
         webbrowser.open(url)
         def _send_web_num():
-            time.sleep(5.5)
+            time.sleep(8.0)
             pyautogui.press("enter")
         threading.Thread(target=_send_web_num, daemon=True).start()
-        return f"Opened WhatsApp chat for {contact_clean} and queued message: '{msg_to_send}'."
+        return f"Opened WhatsApp chat for {contact_clean} and sending: '{msg_to_send}'."
 
     if use_app and sys.platform == "win32":
         # Launch Windows WhatsApp Desktop App
@@ -329,47 +329,65 @@ def send_whatsapp_message(contact_or_number: str, message: str, use_app: bool = 
 
         def _send_app():
             try:
-                # Wait for WhatsApp window to focus
-                time.sleep(3.0)
-                # Press Ctrl + F to focus search bar
+                # Wait for WhatsApp window to open and focus
+                time.sleep(4.0)
+                sw, sh = pyautogui.size()
+
+                # Click the search/new chat area at top left of WhatsApp
+                # WhatsApp Desktop search bar is roughly at 15% width, 6% height
+                search_x = int(sw * 0.15)
+                search_y = int(sh * 0.06)
+                pyautogui.click(search_x, search_y)
+                time.sleep(0.5)
+
+                # Also try the keyboard shortcut to open search
                 pyautogui.hotkey("ctrl", "f")
-                time.sleep(0.4)
-                # Type contact name
+                time.sleep(0.5)
+
+                # Clear any existing text and type contact name
+                pyautogui.hotkey("ctrl", "a")
+                time.sleep(0.1)
                 pyperclip.copy(contact_clean)
                 pyautogui.hotkey("ctrl", "v")
-                time.sleep(1.2)
-                # Select top contact result
+                time.sleep(1.5)
+
+                # Select top result
                 pyautogui.press("down")
                 time.sleep(0.2)
                 pyautogui.press("enter")
-                time.sleep(0.8)
-                # Paste message into chat box
+                time.sleep(1.0)
+
+                # Now type and send message
                 pyperclip.copy(msg_to_send)
                 pyautogui.hotkey("ctrl", "v")
-                time.sleep(0.3)
-                # Send message
+                time.sleep(0.4)
                 pyautogui.press("enter")
+
                 log.info("Sent WhatsApp Desktop message to %s: %r", contact_clean, msg_to_send)
             except Exception as e:
                 log.warning("WhatsApp desktop send error: %s", e)
 
         threading.Thread(target=_send_app, daemon=True).start()
-        return f"Opened WhatsApp Desktop, searched for {contact_clean}, and sent your message: '{msg_to_send}'."
+        return f"Opened WhatsApp Desktop and sending message to {contact_clean}: '{msg_to_send}'."
 
     else:
         # WhatsApp Web fallback
-        url = f"https://web.whatsapp.com"
+        url = "https://web.whatsapp.com"
         webbrowser.open(url)
         def _send_web():
             try:
-                time.sleep(5.0)
-                pyautogui.hotkey("ctrl", "alt", "/")
-                time.sleep(0.4)
+                time.sleep(8.0)
+                sw, sh = pyautogui.size()
+                # Click search bar area
+                pyautogui.click(int(sw * 0.18), int(sh * 0.06))
+                time.sleep(0.5)
                 pyperclip.copy(contact_clean)
                 pyautogui.hotkey("ctrl", "v")
-                time.sleep(1.5)
+                time.sleep(2.0)
+                pyautogui.press("down")
+                time.sleep(0.2)
                 pyautogui.press("enter")
-                time.sleep(0.8)
+                time.sleep(1.0)
                 pyperclip.copy(msg_to_send)
                 pyautogui.hotkey("ctrl", "v")
                 time.sleep(0.3)
@@ -378,7 +396,7 @@ def send_whatsapp_message(contact_or_number: str, message: str, use_app: bool = 
                 log.warning("WhatsApp web send error: %s", e)
 
         threading.Thread(target=_send_web, daemon=True).start()
-        return f"Opened WhatsApp Web and sent message to {contact_clean}."
+        return f"Opened WhatsApp Web and sending message to {contact_clean}."
 
 
 def send_email_compose(recipient: str = "", subject: str = "", body: str = "") -> str:
