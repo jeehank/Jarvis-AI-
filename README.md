@@ -86,18 +86,6 @@ Say **"Jarvis ... [your command] ... Over"** or type commands directly in the te
 
 ---
 
-## Contact & Group Aliases
-
-### WhatsApp:
-- **"the group" / "in the group" / "debayan group"** → `DEBAYAN PATHAK IS GOING TO ENGLAND BABES (BO'O'WOER)`
-
-### Instagram DMs:
-- **Sohani, Sohu, Soha** → Sohani's DM thread
-- **Abhirup, Abhiroop, Abhi** → Abhirup's DM thread
-- **Sampriti, Sam, Samp** → Sampriti's DM thread
-
----
-
 ## Sleep & Turn On Behavior
 
 - **"Jarvis, go to sleep, over"**: Sends a Windows monitor standby signal. Displays power down immediately while Jarvis keeps running in the background and listening for your voice.
