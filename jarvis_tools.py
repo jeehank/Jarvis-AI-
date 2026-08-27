@@ -187,12 +187,6 @@ def system_action(action: str) -> str:
                 return "Muted audio." if not current_mute else "Unmuted audio."
             except Exception as e:
                 return f"Failed to toggle mute: {e}"
-                volume = interface.QueryInterface(IAudioEndpointVolume)
-                current_mute = volume.GetMute()
-                volume.SetMute(not current_mute, None)
-                return "Muted audio." if not current_mute else "Unmuted audio."
-            except Exception as e:
-                return f"Failed to toggle mute: {e}"
     return f"Action '{action}' is not supported."
 
 
