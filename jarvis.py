@@ -21,11 +21,11 @@ Tuning (constants below):
   FOCUS_EXISTING_CURSOR_ON_DOUBLE_CLAP — if True, launch Cursor without -n (reuse / focus existing instance).
   OPEN_NEW_CURSOR_ON_DOUBLE_CLAP — if True, also launch Cursor with -n (extra new window; runs after focus launch if both).
   CURSOR_OPEN_FULLSCREEN — Windows: after focus/launch, send F11 to enter Cursor/VS Code-style fullscreen (toggle off with F11).
-  OPEN_CLAUDE_CODE_IN_CHROME — Claude in Chrome after Spotify (CLAUDE_CODE_URL).
-  OPEN_BINANCE_BTC_IN_CHROME — Binance BTC trade page in Chrome (BINANCE_BTC_URL).
-  CLAUDE_CHROME_MONITOR / BINANCE_CHROME_MONITOR — 1-based display index (Windows: sorted left-to-top).
+  OPEN_YOUTUBE_IN_CHROME — YouTube in Chrome after Spotify (YOUTUBE_URL).
+  OPEN_INSTAGRAM_IN_CHROME — Instagram in Chrome (INSTAGRAM_URL).
+  YOUTUBE_CHROME_MONITOR / INSTAGRAM_CHROME_MONITOR — 1-based display index (Windows: sorted left-to-top).
   CHROME_SEPARATE_SITE_PROFILES — Windows: if True, uses temp --user-data-dir per site (not your normal profile).
-    Default False so Claude/Binance use your usual Chrome profile and logins; enable only if both windows keep
+    Default False so YouTube/Instagram use your usual Chrome profile and logins; enable only if both windows keep
     opening on the same monitor and you accept a separate profile for automation.
   OPEN_CHROME_FULLSCREEN — Fullscreen on the chosen monitor (Windows: new window is detected and snapped with SetWindowPos).
   JARVIS_WELCOME_* — TTS after the song (ElevenLabs). Configure via environment or a `.env`
@@ -61,7 +61,9 @@ SAMPLE_RATE = 44100
 BLOCK_MS = 40
 CHANNELS = 1
 
-SPIKE_RATIO = 7.0
+# Set TRIGGER_ON_SINGLE_SOUND = True to trigger on ANY sound (clap/snap/voice) once, or False for double-clap.
+TRIGGER_ON_SINGLE_SOUND = True
+SPIKE_RATIO = 5.0
 COOLDOWN_S = 0.45
 MIN_DOUBLE_GAP_S = 0.05
 MAX_DOUBLE_GAP_S = 0.35
@@ -83,14 +85,14 @@ OPEN_NEW_CURSOR_ON_DOUBLE_CLAP = False
 CURSOR_OPEN_FULLSCREEN = True
 
 # Google Chrome (fallback: default browser). URLs overridable in .env.
-OPEN_CLAUDE_CODE_IN_CHROME = True
-OPEN_BINANCE_BTC_IN_CHROME = True
+OPEN_YOUTUBE_IN_CHROME = True
+OPEN_INSTAGRAM_IN_CHROME = True
 OPEN_CHROME_FULLSCREEN = True
 # False = default Chrome profile (your normal user, extensions, cookies). True = temp dirs under %TEMP% per site.
 CHROME_SEPARATE_SITE_PROFILES = False
 # Which physical screen (1 = leftmost/top-first after sorting). Windows only; ignored elsewhere.
-CLAUDE_CHROME_MONITOR = 1
-BINANCE_CHROME_MONITOR = 3
+YOUTUBE_CHROME_MONITOR = 1
+INSTAGRAM_CHROME_MONITOR = 2
 
 JARVIS_WELCOME_ENABLED = True
 JARVIS_WELCOME_PHRASE = (
@@ -684,24 +686,24 @@ def _open_url_in_chrome(
         log.warning("Could not open %s in Chrome: %s", label, e)
 
 
-def open_claude_in_chrome() -> None:
-    if not OPEN_CLAUDE_CODE_IN_CHROME:
+def open_youtube_in_chrome() -> None:
+    if not OPEN_YOUTUBE_IN_CHROME:
         return
-    url = (os.environ.get("CLAUDE_CODE_URL") or "https://claude.ai/new").strip()
+    url = (os.environ.get("YOUTUBE_URL") or "https://www.youtube.com").strip()
     pos: tuple[int, int] | None = None
     size: tuple[int, int] | None = None
     fs = OPEN_CHROME_FULLSCREEN
     post_mon: int | None = None
     user_data: str | None = None
     if sys.platform == "win32":
-        post_mon = CLAUDE_CHROME_MONITOR
-        pos = _chrome_monitor_top_left(CLAUDE_CHROME_MONITOR)
+        post_mon = YOUTUBE_CHROME_MONITOR
+        pos = _chrome_monitor_top_left(YOUTUBE_CHROME_MONITOR)
         if fs:
-            size = _chrome_monitor_pixel_size(CLAUDE_CHROME_MONITOR)
+            size = _chrome_monitor_pixel_size(YOUTUBE_CHROME_MONITOR)
         else:
             size = _chrome_window_size()
         if CHROME_SEPARATE_SITE_PROFILES:
-            user_data = _chrome_site_user_data_dir("claude")
+            user_data = _chrome_site_user_data_dir("youtube")
     elif not fs:
         size = _chrome_window_size()
     else:
@@ -709,7 +711,7 @@ def open_claude_in_chrome() -> None:
     _open_url_in_chrome(
         url,
         new_window=True,
-        label="Claude",
+        label="YouTube",
         window_position=pos,
         window_size=size,
         fullscreen=fs,
@@ -718,27 +720,24 @@ def open_claude_in_chrome() -> None:
     )
 
 
-def open_binance_btc_in_chrome() -> None:
-    if not OPEN_BINANCE_BTC_IN_CHROME:
+def open_instagram_in_chrome() -> None:
+    if not OPEN_INSTAGRAM_IN_CHROME:
         return
-    url = (
-        os.environ.get("BINANCE_BTC_URL")
-        or "https://www.binance.com/en/trade/BTC_USDT"
-    ).strip()
+    url = (os.environ.get("INSTAGRAM_URL") or "https://www.instagram.com").strip()
     pos: tuple[int, int] | None = None
     size: tuple[int, int] | None = None
     fs = OPEN_CHROME_FULLSCREEN
     post_mon: int | None = None
     user_data: str | None = None
     if sys.platform == "win32":
-        post_mon = BINANCE_CHROME_MONITOR
-        pos = _chrome_monitor_top_left(BINANCE_CHROME_MONITOR)
+        post_mon = INSTAGRAM_CHROME_MONITOR
+        pos = _chrome_monitor_top_left(INSTAGRAM_CHROME_MONITOR)
         if fs:
-            size = _chrome_monitor_pixel_size(BINANCE_CHROME_MONITOR)
+            size = _chrome_monitor_pixel_size(INSTAGRAM_CHROME_MONITOR)
         else:
             size = _chrome_window_size()
         if CHROME_SEPARATE_SITE_PROFILES:
-            user_data = _chrome_site_user_data_dir("binance")
+            user_data = _chrome_site_user_data_dir("instagram")
     elif not fs:
         size = _chrome_window_size()
     else:
@@ -746,7 +745,7 @@ def open_binance_btc_in_chrome() -> None:
     _open_url_in_chrome(
         url,
         new_window=True,
-        label="Binance BTC",
+        label="Instagram",
         window_position=pos,
         window_size=size,
         fullscreen=fs,
@@ -865,8 +864,8 @@ def _focus_existing_cursor_window_win32() -> bool:
 def run_double_clap_actions() -> None:
     """Run outside the mic loop so sleeps do not stall capture."""
     play_song(SONG_URI)
-    open_claude_in_chrome()
-    open_binance_btc_in_chrome()
+    open_youtube_in_chrome()
+    open_instagram_in_chrome()
     if JARVIS_WELCOME_ENABLED and JARVIS_WELCOME_PHRASE.strip():
         delay = max(0.0, JARVIS_AFTER_SONG_DELAY_S)
         if delay:
@@ -920,16 +919,25 @@ def main() -> int:
     spike_armed = True
     welcome_sequence_done = False
 
-    log.info(
-        "Listening (double clap: %.2f–%.2fs apart, rate=%d, block=%d ms, "
-        "spike_ratio=%.1f, cooldown=%.2fs). Ctrl+C to stop.",
-        MIN_DOUBLE_GAP_S,
-        MAX_DOUBLE_GAP_S,
-        SAMPLE_RATE,
-        BLOCK_MS,
-        SPIKE_RATIO,
-        COOLDOWN_S,
-    )
+    if TRIGGER_ON_SINGLE_SOUND:
+        log.info(
+            "Listening (single sound trigger: rate=%d, block=%d ms, "
+            "spike_ratio=%.1f). Ctrl+C to stop.",
+            SAMPLE_RATE,
+            BLOCK_MS,
+            SPIKE_RATIO,
+        )
+    else:
+        log.info(
+            "Listening (double clap: %.2f–%.2fs apart, rate=%d, block=%d ms, "
+            "spike_ratio=%.1f, cooldown=%.2fs). Ctrl+C to stop.",
+            MIN_DOUBLE_GAP_S,
+            MAX_DOUBLE_GAP_S,
+            SAMPLE_RATE,
+            BLOCK_MS,
+            SPIKE_RATIO,
+            COOLDOWN_S,
+        )
     if SONG_URI.strip():
         log.info("Double clap opens this track: %s", SONG_URI.strip())
     else:
@@ -943,24 +951,21 @@ def main() -> int:
         log.info("Double clap will also open a new Cursor window (-n).")
     if CURSOR_OPEN_FULLSCREEN and sys.platform == "win32":
         log.info("Cursor will be sent F11 for fullscreen after focus/launch.")
-    if OPEN_CLAUDE_CODE_IN_CHROME:
-        cu = (os.environ.get("CLAUDE_CODE_URL") or "https://claude.ai/new").strip()
+    if OPEN_YOUTUBE_IN_CHROME:
+        yu = (os.environ.get("YOUTUBE_URL") or "https://www.youtube.com").strip()
         log.info(
-            "After Spotify, open Claude in Chrome%s on monitor %d: %s",
+            "After Spotify, open YouTube in Chrome%s on monitor %d: %s",
             " fullscreen" if OPEN_CHROME_FULLSCREEN else "",
-            CLAUDE_CHROME_MONITOR,
-            cu,
+            YOUTUBE_CHROME_MONITOR,
+            yu,
         )
-    if OPEN_BINANCE_BTC_IN_CHROME:
-        bu = (
-            os.environ.get("BINANCE_BTC_URL")
-            or "https://www.binance.com/en/trade/BTC_USDT"
-        ).strip()
+    if OPEN_INSTAGRAM_IN_CHROME:
+        iu = (os.environ.get("INSTAGRAM_URL") or "https://www.instagram.com").strip()
         log.info(
-            "After Spotify, open Binance BTC in Chrome%s on monitor %d: %s",
+            "After Spotify, open Instagram in Chrome%s on monitor %d: %s",
             " fullscreen" if OPEN_CHROME_FULLSCREEN else "",
-            BINANCE_CHROME_MONITOR,
-            bu,
+            INSTAGRAM_CHROME_MONITOR,
+            iu,
         )
     if JARVIS_WELCOME_ENABLED:
         ev, em, ef, er = elevenlabs_env_config()
@@ -1011,30 +1016,43 @@ def main() -> int:
                     and (now - last_logged_double) >= COOLDOWN_S
                 ):
                     spike_armed = False
-                    if first_clap_time is None:
-                        first_clap_time = now
+                    if TRIGGER_ON_SINGLE_SOUND:
+                        if not welcome_sequence_done:
+                            welcome_sequence_done = True
+                            log.info(
+                                "Sound detected (rms=%.5f, noise_floor=%.5f, threshold=%.5f) — running welcome once",
+                                level,
+                                noise_floor,
+                                threshold,
+                            )
+                            threading.Thread(
+                                target=run_double_clap_actions, daemon=True
+                            ).start()
                     else:
-                        gap = now - first_clap_time
-                        if gap < MIN_DOUBLE_GAP_S:
-                            pass
-                        elif gap <= MAX_DOUBLE_GAP_S:
-                            first_clap_time = None
-                            last_logged_double = now
-                            if not welcome_sequence_done:
-                                welcome_sequence_done = True
-                                log.info(
-                                    "Double clap detected (gap=%.3fs, rms=%.5f, "
-                                    "noise_floor=%.5f, threshold=%.5f) — running welcome once",
-                                    gap,
-                                    level,
-                                    noise_floor,
-                                    threshold,
-                                )
-                                threading.Thread(
-                                    target=run_double_clap_actions, daemon=True
-                                ).start()
-                        else:
+                        if first_clap_time is None:
                             first_clap_time = now
+                        else:
+                            gap = now - first_clap_time
+                            if gap < MIN_DOUBLE_GAP_S:
+                                pass
+                            elif gap <= MAX_DOUBLE_GAP_S:
+                                first_clap_time = None
+                                last_logged_double = now
+                                if not welcome_sequence_done:
+                                    welcome_sequence_done = True
+                                    log.info(
+                                        "Double clap detected (gap=%.3fs, rms=%.5f, "
+                                        "noise_floor=%.5f, threshold=%.5f) — running welcome once",
+                                        gap,
+                                        level,
+                                        noise_floor,
+                                        threshold,
+                                    )
+                                    threading.Thread(
+                                        target=run_double_clap_actions, daemon=True
+                                    ).start()
+                            else:
+                                first_clap_time = now
 
     except KeyboardInterrupt:
         log.info("Stopped.")
