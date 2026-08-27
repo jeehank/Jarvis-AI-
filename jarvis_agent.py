@@ -39,14 +39,16 @@ logging.basicConfig(
 log = logging.getLogger("jarvis")
 
 SYSTEM_PROMPT = (
-    "You are JARVIS, a capable, polite AI assistant (like Tony Stark's JARVIS). "
-    "You have tools to control the user's Windows PC: open apps/sites, send messages on WhatsApp/Instagram/Gmail, "
-    "play music, control volume, take screenshots, like posts, read the screen, etc. "
-    "When asked to text or message 'the group', 'a group', or 'in a group' on WhatsApp, the group to search and message is: "
-    "'DEBAYAN PATHAK IS GOING TO ENGLAND BABES (BO'O'WOER)'. "
-    "When asked to introduce yourself or send a message on WhatsApp or Instagram, always call the appropriate tool "
-    "with the contact name and the message content. "
-    "Keep spoken responses concise (1-2 sentences maximum). Address the user as 'sir'."
+    "You are JARVIS, an autonomous, highly capable AI assistant and butler (like Tony Stark's JARVIS). "
+    "You have full access to tools on the user's Windows computer.\n"
+    "--- MESSAGING RULES ---\n"
+    "1. When the user asks you to send, generate, compose, write, or draft a message "
+    "(e.g. an appreciation message, birthday wish, congratulations, check-in, apology, update, invitation, reminder): "
+    "   - GENERATE the actual, thoughtful, friendly message body (do NOT send instructions or placeholders like '[Your Name]'). "
+    "   - Call the 'send_whatsapp_message' or 'send_instagram_dm_message' tool with the contact name and your generated message body.\n"
+    "2. If the user asks to message 'the group', 'a group', or 'in a group' on WhatsApp, the group name is: "
+    "'DEBAYAN PATHAK IS GOING TO ENGLAND BABES (BO'O'WOER)'.\n"
+    "3. Keep your spoken responses concise, witty, and polite (1-2 sentences maximum). Address the user as 'sir'."
 )
 
 # Contacts that map to Instagram DM threads
@@ -124,6 +126,19 @@ class Voice:
             _play()
         else:
             threading.Thread(target=_play, daemon=True).start()
+
+
+def is_generative_intent(text: str) -> bool:
+    """Returns True if the prompt asks to compose/generate content rather than sending literal text."""
+    lower = text.lower()
+    triggers = (
+        "generate", "compose", "draft", "write a", "write an", "appreciation",
+        "birthday", "congratulat", "wish", "motivat", "thank you", "apology",
+        "apologize", "invite", "invitation", "ask if", "ask them", "tell them to",
+        "tell him to", "tell her to", "explain to", "remind him", "remind her",
+        "an appreciation", "a message of", "a note", "a reminder", "an invite",
+    )
+    return any(trig in lower for trig in triggers)
 
 
 # ── Brain (command routing + Groq) ─────────────────────────────────
@@ -225,6 +240,10 @@ class Brain:
         if "instagram" not in t or not (has_contact or has_action):
             return False
 
+        # If user wants to compose/generate a custom message, let Groq write it
+        if is_generative_intent(t):
+            return False
+
         # figure out who
         contact = self._find_ig_contact(t)
 
@@ -256,6 +275,10 @@ class Brain:
         if "whatsapp" not in t:
             return False
 
+        # If the user is asking to generate/compose/draft a message, let Groq write it!
+        if is_generative_intent(t):
+            return False
+
         # 1. "introduce yourself to [contact] on whatsapp"
         intro_m = re.search(r"introduce\s+(?:yourself|jarvis)\s+to\s+([a-zA-Z0-9_+]+)", t)
         if intro_m:
@@ -271,7 +294,7 @@ class Brain:
         m1 = re.search(r"(?:send\s+(?:a\s+)?message\s+to|message|text|tell)\s+([a-zA-Z0-9_+]+)(?:\s+on\s+whatsapp)?\s+(?:saying|that|text)\s+(.+)", t)
         if m1:
             contact, msg = m1.group(1), m1.group(2).strip()
-            if msg:
+            if msg and not is_generative_intent(msg):
                 self.voice.speak(f"Sending your message to {contact.capitalize()} on WhatsApp, sir.")
                 res = TOOL_FUNCTION_MAP["send_whatsapp_message"](contact, msg)
                 safe_print(f"  JARVIS: {res}")
@@ -280,7 +303,7 @@ class Brain:
         m2 = re.search(r"(?:to\s+)?([a-zA-Z0-9_+]+)\s+on\s+whatsapp\s+(?:saying|that|text)\s+(.+)", t)
         if m2:
             contact, msg = m2.group(1), m2.group(2).strip()
-            if msg:
+            if msg and not is_generative_intent(msg):
                 self.voice.speak(f"Sending your message to {contact.capitalize()} on WhatsApp, sir.")
                 res = TOOL_FUNCTION_MAP["send_whatsapp_message"](contact, msg)
                 safe_print(f"  JARVIS: {res}")
@@ -298,7 +321,7 @@ class Brain:
             TOOL_FUNCTION_MAP["open_whatsapp"]("web")
             return True
 
-        # For all other phrasings, return False so Groq's 120B model extracts contact and message with 100% accuracy
+        # For all other phrasings, return False so Groq's 120B model extracts contact and generates message
         return False
 
     def _handle_group_message(self, t: str) -> bool:
@@ -307,6 +330,10 @@ class Brain:
         action_triggers = ("text", "message", "send", "tell", "saying", "write", "post")
 
         if any(g in t for g in group_triggers) and any(a in t for a in action_triggers):
+            # If the user asks to compose/generate, let Groq write it
+            if is_generative_intent(t):
+                return False
+
             # 1. Look for explicit delimiters first: "saying [msg]", "that [msg]"
             msg_m = re.search(r"(?:saying|that)\s+(.+)", t)
             if msg_m:
@@ -320,7 +347,7 @@ class Brain:
                     flags=re.IGNORECASE
                 ).strip()
 
-            if msg:
+            if msg and not is_generative_intent(msg):
                 group_name = "DEBAYAN PATHAK IS GOING TO ENGLAND BABES (BO'O'WOER)"
                 self.voice.speak("Sending your message to the group on WhatsApp, sir.")
                 res = TOOL_FUNCTION_MAP["send_whatsapp_message"](group_name, msg)
