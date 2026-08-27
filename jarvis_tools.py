@@ -268,6 +268,22 @@ def send_instagram_dm(username: str, message: str = "") -> str:
     return f"Opened Instagram Direct Message for @{u_clean}."
 
 
+def capture_desktop_image() -> Optional[Image.Image]:
+    """Capture desktop screenshot with fallbacks."""
+    try:
+        from PIL import ImageGrab
+        img = ImageGrab.grab()
+        if img:
+            return img
+    except Exception:
+        pass
+    try:
+        return pyautogui.screenshot()
+    except Exception:
+        pass
+    return None
+
+
 def see_and_analyze_screen(question_or_instruction: str) -> str:
     """Takes a live screenshot and uses Gemini Vision to see what is on screen and answer questions or describe it."""
     try:
@@ -277,17 +293,18 @@ def see_and_analyze_screen(question_or_instruction: str) -> str:
         if not gemini_key:
             return "Gemini API key is required to view screen."
 
-        # Take screenshot
-        screenshot = pyautogui.screenshot()
-        # Resize slightly for ultra-fast vision transfer
-        screenshot.thumbnail((1280, 720))
+        img = capture_desktop_image()
+        if not img:
+            return "Could not capture active screen."
+
+        img.thumbnail((1280, 720))
         img_byte_arr = io.BytesIO()
-        screenshot.save(img_byte_arr, format="JPEG", quality=80)
+        img.save(img_byte_arr, format="JPEG", quality=80)
         img_bytes = img_byte_arr.getvalue()
 
         client = genai.Client(api_key=gemini_key)
         prompt = f"Look at this live screenshot of the user's computer screen. Answer concisely: {question_or_instruction}"
-        
+
         response = client.models.generate_content(
             model="gemini-3.6-flash",
             contents=[
