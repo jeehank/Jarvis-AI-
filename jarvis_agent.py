@@ -2,6 +2,7 @@
 jarvis_agent.py
 Main voice agent loop for JARVIS.
 Uses Groq for ultra-fast AI reasoning and tool execution, ElevenLabs for voice output.
+Listens continuously: starts recording at "Jarvis", finishes and executes when you say "over and out".
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ import os
 import re
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -38,8 +40,10 @@ log = logging.getLogger("jarvis")
 
 SYSTEM_PROMPT = (
     "You are JARVIS, a capable, polite AI assistant (like Tony Stark's JARVIS). "
-    "You have tools to control the user's Windows PC: open apps/sites, send messages, "
+    "You have tools to control the user's Windows PC: open apps/sites, send messages on WhatsApp/Instagram/Gmail, "
     "play music, control volume, take screenshots, like posts, read the screen, etc. "
+    "When asked to introduce yourself or send a message on WhatsApp or Instagram, always call the appropriate tool "
+    "with the contact name and the message content. "
     "Keep spoken responses concise (1-2 sentences maximum). Address the user as 'sir'."
 )
 
@@ -49,6 +53,20 @@ KNOWN_IG_ALIASES = (
     "abhirup", "abhiroop", "abhi", "abirup", "abiroop",
     "sampriti", "sam", "samp",
 )
+
+
+# ── Safe Console Printing ──────────────────────────────────────────
+
+def safe_print(text: str) -> None:
+    """Safely print text to standard output, preventing Windows console charmap errors."""
+    try:
+        print(text)
+    except (UnicodeEncodeError, Exception):
+        try:
+            enc = sys.stdout.encoding or "utf-8"
+            print(text.encode(enc, errors="replace").decode(enc))
+        except Exception:
+            pass
 
 
 # ── Voice (ElevenLabs TTS) ─────────────────────────────────────────
@@ -106,18 +124,6 @@ class Voice:
             threading.Thread(target=_play, daemon=True).start()
 
 
-def safe_print(text: str) -> None:
-    """Safely print text to standard output, preventing Windows console charmap errors."""
-    try:
-        print(text)
-    except (UnicodeEncodeError, Exception):
-        try:
-            enc = sys.stdout.encoding or "utf-8"
-            print(text.encode(enc, errors="replace").decode(enc))
-        except Exception:
-            pass
-
-
 # ── Brain (command routing + Groq) ─────────────────────────────────
 
 class Brain:
@@ -161,10 +167,12 @@ class Brain:
         Match common patterns and execute immediately (no API call).
         Returns True if handled.
         """
+        # Strip wake word and 'over and out' phrases from the input
         t = re.sub(r"^(hey\s+)?jarvis[\s,]*", "", text.lower().strip(), flags=re.IGNORECASE).strip()
+        t = re.sub(r"\b(over\s+(and\s+|&\s+)?out|over\b\s*$)", "", t, flags=re.IGNORECASE).strip()
 
         if not t:
-            self.voice.speak("Yes sir, I'm here. What do you need?")
+            self.voice.speak("Yes sir, I'm listening. What do you need?")
             return True
 
         return (
@@ -245,24 +253,48 @@ class Brain:
         if "whatsapp" not in t:
             return False
 
-        # explicit desktop app
+        # 1. "introduce yourself to [contact] on whatsapp"
+        intro_m = re.search(r"introduce\s+yourself\s+to\s+([a-zA-Z0-9_+]+)", t)
+        if intro_m:
+            contact = intro_m.group(1)
+            msg = "Hello! I am JARVIS, an autonomous AI assistant."
+            self.voice.speak(f"Opening WhatsApp and introducing myself to {contact.capitalize()}, sir.")
+            res = TOOL_FUNCTION_MAP["send_whatsapp_message"](contact, msg)
+            safe_print(f"  JARVIS: {res}")
+            return True
+
+        # 2. "message [contact] on whatsapp saying [msg]" / "text [contact] on whatsapp [msg]"
+        m1 = re.search(r"(?:message|text|send\s+(?:a\s+)?message\s+to|tell)\s+([a-zA-Z0-9_+]+)(?:\s+on\s+whatsapp)?\s+(?:saying|message|that|text)\s+(.+)", t)
+        if m1:
+            contact, msg = m1.group(1), m1.group(2)
+            self.voice.speak(f"Sending your message to {contact.capitalize()} on WhatsApp, sir.")
+            res = TOOL_FUNCTION_MAP["send_whatsapp_message"](contact, msg)
+            safe_print(f"  JARVIS: {res}")
+            return True
+
+        # 3. "[contact] on whatsapp saying [msg]"
+        m2 = re.search(r"(?:to\s+)?([a-zA-Z0-9_+]+)\s+on\s+whatsapp\s+(?:saying|message|that|text)\s+(.+)", t)
+        if m2:
+            contact, msg = m2.group(1), m2.group(2)
+            self.voice.speak(f"Sending your message to {contact.capitalize()} on WhatsApp, sir.")
+            res = TOOL_FUNCTION_MAP["send_whatsapp_message"](contact, msg)
+            safe_print(f"  JARVIS: {res}")
+            return True
+
+        # 4. Explicit desktop app launch: "open whatsapp app" / "open whatsapp desktop"
         if any(w in t for w in ("app", "desktop", "application")):
             self.voice.speak("Opening WhatsApp Desktop, sir.")
             TOOL_FUNCTION_MAP["open_whatsapp"]("app")
             return True
 
-        # send a message
-        m = re.search(r"(?:to\s+)?([a-zA-Z0-9_+]+)\s+(?:saying|message|that)\s+(.+)", t)
-        if m:
-            contact, msg = m.group(1), m.group(2)
-            self.voice.speak(f"Sending your message to {contact} on WhatsApp, sir.")
-            TOOL_FUNCTION_MAP["send_whatsapp_message"](contact, msg)
+        # 5. Simple open: "open whatsapp", "launch whatsapp"
+        if t.strip() in ("open whatsapp", "launch whatsapp", "whatsapp", "open whatsapp web"):
+            self.voice.speak("Opening WhatsApp for you, sir.")
+            TOOL_FUNCTION_MAP["open_whatsapp"]("web")
             return True
 
-        # just open it
-        self.voice.speak("Opening WhatsApp for you, sir.")
-        TOOL_FUNCTION_MAP["open_whatsapp"]("web")
-        return True
+        # If it's a complex phrasing (e.g. conversational question), let Groq handle it
+        return False
 
     def _handle_screen(self, t: str) -> bool:
         triggers = ("look", "what", "read", "see", "analyze")
@@ -442,42 +474,107 @@ class Brain:
             self.voice.speak("Task completed, sir.")
 
 
-# ── Listener (always-on mic) ──────────────────────────────────────
+# ── Listener (starts at Jarvis, stops at over and out) ─────────────
 
 class Listener:
-    """Continuously listens to the mic for the wake word."""
+    """
+    Continuously listens for the wake word 'Jarvis' to begin recording,
+    and captures all spoken words until the user says 'over and out' (or 'over').
+    """
 
     def __init__(self, wake_word: str = "jarvis"):
         self.wake_word = wake_word.lower()
         self.running   = True
+        self.is_recording = False
+        self.buffer: List[str] = []
+        self.last_audio_time = 0.0
 
         self.rec = sr.Recognizer()
-        self.rec.energy_threshold         = 260
+        self.rec.energy_threshold         = 280
         self.rec.dynamic_energy_threshold = True
-        self.rec.pause_threshold          = 0.55
+        self.rec.pause_threshold          = 0.8
         self.rec.phrase_threshold          = 0.2
-        self.rec.non_speaking_duration     = 0.4
+        self.rec.non_speaking_duration     = 0.5
+
+    def _has_stop_phrase(self, text: str) -> bool:
+        """Check if text contains the end marker: 'over and out', 'over & out', 'over out', or trailing 'over'."""
+        t = text.lower().strip()
+        return bool(re.search(r"\b(over\s+(and\s+|&\s+)?out|over\b\s*$)", t))
+
+    def _strip_stop_phrase(self, text: str) -> str:
+        """Strip 'over and out' / 'over' from the end of a command string."""
+        cleaned = re.sub(r"\b(over\s+(and\s+|&\s+)?out|over\b\s*$)", "", text, flags=re.IGNORECASE)
+        return cleaned.strip(" ,:.-")
 
     def loop(self, on_command):
-        """Blocking listen loop. Calls on_command(text) when wake word is heard."""
+        """Blocking listen loop. Starts recording at 'jarvis' and stops when 'over and out' is heard."""
         try:
             with sr.Microphone() as mic:
-                log.info("Calibrating mic...")
+                log.info("Calibrating microphone...")
                 self.rec.adjust_for_ambient_noise(mic, duration=0.8)
-                log.info("Listening. Say '%s' to activate.", self.wake_word)
+                log.info("Continuous listening ACTIVE.")
+                log.info("Say 'Jarvis [your instructions] Over and out'")
 
                 while self.running:
                     try:
-                        audio = self.rec.listen(mic, timeout=2.5, phrase_time_limit=7.0)
+                        timeout = 3.0 if not self.is_recording else 4.5
+                        phrase_limit = 12.0
+
+                        audio = self.rec.listen(mic, timeout=timeout, phrase_time_limit=phrase_limit)
                         text  = self.rec.recognize_google(audio).strip()
                         if not text:
                             continue
 
-                        if self.wake_word in text.lower():
-                            log.info("Wake word detected: %r", text)
-                            on_command(text)
+                        text_lower = text.lower()
+
+                        if not self.is_recording:
+                            # Waiting for wake word "jarvis"
+                            if self.wake_word in text_lower:
+                                log.info("Wake word detected: %r", text)
+                                idx = text_lower.find(self.wake_word)
+                                after_wake = text[idx + len(self.wake_word):].strip(" ,:.-")
+
+                                if self._has_stop_phrase(after_wake):
+                                    # Complete prompt in a single sentence
+                                    cmd = self._strip_stop_phrase(after_wake)
+                                    if cmd:
+                                        log.info("Full command received: %r", cmd)
+                                        on_command(cmd)
+                                else:
+                                    # Begin accumulating multi-phrase command
+                                    self.is_recording = True
+                                    self.buffer = [after_wake] if after_wake else []
+                                    self.last_audio_time = time.time()
+                                    safe_print("  [Listening... say 'over and out' to execute]")
+                        else:
+                            # Currently recording multi-phrase command
+                            self.last_audio_time = time.time()
+                            log.info("Accumulated chunk: %r", text)
+
+                            if self._has_stop_phrase(text_lower):
+                                # Stop phrase detected!
+                                clean_chunk = self._strip_stop_phrase(text)
+                                if clean_chunk:
+                                    self.buffer.append(clean_chunk)
+
+                                full_cmd = " ".join(b for b in self.buffer if b).strip()
+                                self.is_recording = False
+                                self.buffer = []
+                                log.info("Finished listening (over and out). Command: %r", full_cmd)
+                                if full_cmd:
+                                    on_command(full_cmd)
+                            else:
+                                self.buffer.append(text)
 
                     except sr.WaitTimeoutError:
+                        # Safety fallback: if user paused for >12s in recording mode without saying 'over and out'
+                        if self.is_recording and (time.time() - self.last_audio_time > 12.0):
+                            full_cmd = " ".join(b for b in self.buffer if b).strip()
+                            self.is_recording = False
+                            self.buffer = []
+                            if full_cmd:
+                                log.info("Auto-executing after pause: %r", full_cmd)
+                                on_command(full_cmd)
                         continue
                     except sr.UnknownValueError:
                         continue
@@ -493,20 +590,22 @@ class Listener:
 
 def main():
     print()
-    print("=" * 55)
+    print("=" * 60)
     print("  JARVIS  -  Voice Assistant (Powered by Groq)")
-    print("=" * 55)
+    print("=" * 60)
     print()
-    print("  Commands you can try:")
-    print("    'Jarvis, play Let It Happen by Tame Impala'")
-    print("    'Jarvis, like this post'")
-    print("    'Jarvis, look at my screen'")
-    print("    'Jarvis, message Alex on WhatsApp saying I'm on my way'")
-    print("    'Jarvis, set volume to 70'")
-    print("    'Jarvis, open Instagram'")
+    print("  Voice Protocol:")
+    print("    Start with: 'Jarvis ...'")
+    print("    End with:   '... Over and out'")
+    print()
+    print("  Examples:")
+    print("    'Jarvis introduce yourself to abhirup on whatsapp over and out'")
+    print("    'Jarvis play Let It Happen by Tame Impala over and out'")
+    print("    'Jarvis like this post over and out'")
+    print("    'Jarvis set volume to 70 over and out'")
     print()
     print("  Type 'exit' or 'quit' to stop.")
-    print("=" * 55)
+    print("=" * 60)
     print()
 
     voice    = Voice()
@@ -518,10 +617,10 @@ def main():
         if not cmd:
             return
 
-        print(f"\n  You > {cmd}")
+        safe_print(f"\n  You > {cmd}")
 
         if cmd.lower() in ("exit", "quit", "goodbye", "bye jarvis", "stop jarvis"):
-            print("  JARVIS: Powering down. Have a good day, sir.")
+            safe_print("  JARVIS: Powering down. Have a good day, sir.")
             voice.speak("Powering down. Have a good day, sir.")
             listener.running = False
             sys.exit(0)
@@ -529,8 +628,8 @@ def main():
         brain.process(cmd)
 
     # greeting
-    greeting = "All systems online, sir. Say Jarvis whenever you need me."
-    print(f"  JARVIS: {greeting}\n")
+    greeting = "All systems online, sir. Say Jarvis followed by your command and over and out when you are done."
+    safe_print(f"  JARVIS: {greeting}\n")
     voice.speak(greeting)
 
     # mic listener on background thread
@@ -543,7 +642,7 @@ def main():
             if typed:
                 handle(typed)
         except (KeyboardInterrupt, EOFError):
-            print("\n  JARVIS: Shutting down. Goodbye, sir.")
+            safe_print("\n  JARVIS: Shutting down. Goodbye, sir.")
             listener.running = False
             break
 
