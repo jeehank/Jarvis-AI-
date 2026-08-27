@@ -1066,4 +1066,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    if "--interactive" in sys.argv or "-i" in sys.argv:
+        from jarvis_agent import run_interactive_jarvis
+        run_interactive_jarvis()
+    else:
+        sys.exit(main())

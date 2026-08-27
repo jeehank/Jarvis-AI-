@@ -123,22 +123,14 @@ def set_system_volume(level_percent: int) -> str:
     level = max(0, min(100, int(level_percent)))
     if sys.platform == "win32":
         try:
-            from comtypes import CLSCTX_ALL
-            from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
-            devices = AudioUtilities.GetSpeakers()
-            interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-            volume = interface.QueryInterface(IAudioEndpointVolume)
-            volume.SetMasterVolumeLevelScalar(level / 100.0, None)
+            from pycaw.pycaw import AudioUtilities
+            spk = AudioUtilities.GetSpeakers()
+            vol = spk.EndpointVolume
+            vol.SetMasterVolumeLevelScalar(level / 100.0, None)
             return f"System volume set to {level}%."
         except Exception as e:
             log.warning("pycaw volume adjustment failed: %s", e)
-            # Fallback to key presses if pycaw fails
-            try:
-                import pyautogui
-                # rough fallback
-                return f"Adjusted volume towards {level}%."
-            except Exception:
-                return f"Could not set volume: {e}"
+            return f"Could not set volume: {e}"
     return f"Volume control not supported on {sys.platform}."
 
 
@@ -146,12 +138,10 @@ def get_system_volume() -> str:
     """Get the current system master volume percentage."""
     if sys.platform == "win32":
         try:
-            from comtypes import CLSCTX_ALL
-            from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
-            devices = AudioUtilities.GetSpeakers()
-            interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-            volume = interface.QueryInterface(IAudioEndpointVolume)
-            current = int(round(volume.GetMasterVolumeLevelScalar() * 100))
+            from pycaw.pycaw import AudioUtilities
+            spk = AudioUtilities.GetSpeakers()
+            vol = spk.EndpointVolume
+            current = int(round(vol.GetMasterVolumeLevelScalar() * 100))
             return f"Current master volume is {current}%."
         except Exception as e:
             return f"Could not query volume: {e}"
@@ -189,10 +179,14 @@ def system_action(action: str) -> str:
             return "Showing desktop."
         elif act in ("mute", "unmute", "toggle_mute"):
             try:
-                from comtypes import CLSCTX_ALL
-                from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
-                devices = AudioUtilities.GetSpeakers()
-                interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+                from pycaw.pycaw import AudioUtilities
+                spk = AudioUtilities.GetSpeakers()
+                vol = spk.EndpointVolume
+                current_mute = vol.GetMute()
+                vol.SetMute(not current_mute, None)
+                return "Muted audio." if not current_mute else "Unmuted audio."
+            except Exception as e:
+                return f"Failed to toggle mute: {e}"
                 volume = interface.QueryInterface(IAudioEndpointVolume)
                 current_mute = volume.GetMute()
                 volume.SetMute(not current_mute, None)
