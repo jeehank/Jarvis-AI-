@@ -236,11 +236,28 @@ def like_current_post(platform: str = "instagram") -> str:
         return f"Could not like post: {e}"
 
 
+# WhatsApp Contact and Group Aliases
+WHATSAPP_CONTACT_ALIASES = {
+    "group": "DEBAYAN PATHAK IS GOING TO ENGLAND BABES (BO'O'WOER)",
+    "the group": "DEBAYAN PATHAK IS GOING TO ENGLAND BABES (BO'O'WOER)",
+    "a group": "DEBAYAN PATHAK IS GOING TO ENGLAND BABES (BO'O'WOER)",
+    "my group": "DEBAYAN PATHAK IS GOING TO ENGLAND BABES (BO'O'WOER)",
+    "debayan group": "DEBAYAN PATHAK IS GOING TO ENGLAND BABES (BO'O'WOER)",
+    "debayan": "DEBAYAN PATHAK IS GOING TO ENGLAND BABES (BO'O'WOER)",
+    "debayan pathak": "DEBAYAN PATHAK IS GOING TO ENGLAND BABES (BO'O'WOER)",
+    "england group": "DEBAYAN PATHAK IS GOING TO ENGLAND BABES (BO'O'WOER)",
+}
+
+
 def send_whatsapp_message(contact_or_number: str, message: str, use_app: bool = True) -> str:
-    """Opens WhatsApp (Desktop App or Web), searches the contact, types the message, and sends it."""
+    """Opens WhatsApp (Desktop App or Web), searches the contact or group, types the message, and sends it."""
     import threading
 
-    contact_clean = contact_or_number.strip()
+    raw_contact = contact_or_number.strip()
+    contact_lower = raw_contact.lower().strip()
+
+    # Map aliases (e.g. 'the group', 'group') to the full group name
+    contact_clean = WHATSAPP_CONTACT_ALIASES.get(contact_lower, raw_contact)
     msg_to_send = message.strip() if message.strip() else "hey"
 
     # Check if contact is a direct phone number
