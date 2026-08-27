@@ -170,10 +170,10 @@ class JarvisBrain:
                 TOOL_FUNCTION_MAP["play_youtube_video"](song_query)
                 return True
 
-        # Instagram Direct with Contacts (Sohani, Abhirup, Sampriti, or username)
-        if "instagram" in t_clean and any(c in t_clean for c in ("sohani", "abhirup", "sampriti", "message", "dm", "send", "chat")):
+        # Instagram Direct with Contacts (Sohani, Abhirup, Abhiroop, Sampriti, or username)
+        if "instagram" in t_clean and any(c in t_clean for c in ("sohani", "abhirup", "abhiroop", "sampriti", "message", "dm", "send", "chat")):
             contact = ""
-            for c in ("sohani", "abhirup", "sampriti"):
+            for c in ("sohani", "abhirup", "abhiroop", "sampriti"):
                 if c in t_clean:
                     contact = c
                     break
