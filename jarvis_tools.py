@@ -264,31 +264,35 @@ def send_whatsapp_message(contact_or_number: str, message: str, use_app: bool = 
         def _send_app():
             try:
                 # Wait for WhatsApp window to open and focus
-                time.sleep(4.0)
+                time.sleep(3.5)
                 sw, sh = pyautogui.size()
 
-                # Click the search area at top left of WhatsApp
+                # Click search area at top-left of WhatsApp window
                 search_x = int(sw * 0.15)
-                search_y = int(sh * 0.06)
+                search_y = int(sh * 0.07)
                 pyautogui.click(search_x, search_y)
-                time.sleep(0.5)
+                time.sleep(0.3)
 
                 # Focus search bar
                 pyautogui.hotkey("ctrl", "f")
-                time.sleep(0.5)
+                time.sleep(0.4)
 
                 # Clear and type contact name
                 pyautogui.hotkey("ctrl", "a")
                 time.sleep(0.1)
                 pyperclip.copy(contact_clean)
                 pyautogui.hotkey("ctrl", "v")
-                time.sleep(1.5)
+                time.sleep(1.8)
 
-                # Select top result
+                # Select contact result
                 pyautogui.press("down")
                 time.sleep(0.2)
                 pyautogui.press("enter")
                 time.sleep(1.0)
+
+                # Focus chat input area in bottom right
+                pyautogui.click(int(sw * 0.65), int(sh * 0.94))
+                time.sleep(0.3)
 
                 # Paste and send message
                 pyperclip.copy(msg_to_send)
