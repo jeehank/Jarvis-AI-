@@ -184,16 +184,17 @@ class Brain:
         Match common patterns and execute immediately (no API call).
         Returns True if handled.
         """
-        # Strip wake word and 'over and out' phrases from the input
+        # Strip wake word and 'over' / 'over and out' phrases from the input
         t = re.sub(r"^(hey\s+)?jarvis[\s,]*", "", text.lower().strip(), flags=re.IGNORECASE).strip()
-        t = re.sub(r"\b(over\s+(and\s+|&\s+)?out|over\b\s*$)", "", t, flags=re.IGNORECASE).strip()
+        t = re.sub(r"\b(over\s+(and\s+|&\s+)?out|over)\b\s*$", "", t, flags=re.IGNORECASE).strip(" ,:.-")
 
         if not t:
             self.voice.speak("Yes sir, I'm listening. What do you need?")
             return True
 
         return (
-            self._handle_like(t)
+            self._handle_power_state(t)
+            or self._handle_like(t)
             or self._handle_play(t)
             or self._handle_instagram(t)
             or self._handle_whatsapp(t)
@@ -208,6 +209,25 @@ class Brain:
         )
 
     # ── individual fast-path handlers ──
+
+    def _handle_power_state(self, t: str) -> bool:
+        """Handles power state commands: turn on / wake up, and sleep / turn off display."""
+        # 1. Turn on / Wake up
+        if any(w in t for w in ("turn on", "wake up", "wake", "screen on", "turn on display", "turn on screen", "turn on pc", "turn on computer")) or t in ("turn on", "wake up", "wake", "on"):
+            if not any(neg in t for neg in ("don't", "dont", "do not", "never")):
+                self.voice.speak("Turning on display and waking up system, sir.")
+                res = TOOL_FUNCTION_MAP["system_action"]("turn_on")
+                safe_print(f"  JARVIS: {res}")
+                return True
+
+        # 2. Sleep / Turn off display
+        if any(s in t for s in ("go to sleep", "sleep display", "turn off screen", "turn off display", "screen off", "sleep computer", "sleep pc")) or t in ("sleep", "go to sleep"):
+            self.voice.speak("Putting displays to sleep. I will remain listening, sir.")
+            res = TOOL_FUNCTION_MAP["system_action"]("sleep")
+            safe_print(f"  JARVIS: {res}")
+            return True
+
+        return False
 
     def _handle_like(self, t: str) -> bool:
         keywords = ("post", "this", "reel", "photo", "video", "picture")
@@ -533,12 +553,12 @@ class Brain:
             self.voice.speak("Task completed, sir.")
 
 
-# ── Listener (starts at Jarvis, stops at over and out) ─────────────
+# ── Listener (starts at Jarvis, stops at over) ─────────────────────
 
 class Listener:
     """
     Continuously listens for the wake word 'Jarvis' to begin recording,
-    and captures all spoken words until the user says 'over and out' (or 'over').
+    and captures all spoken words until the user says 'over' (or 'over and out').
     """
 
     def __init__(self, wake_word: str = "jarvis"):
@@ -556,23 +576,23 @@ class Listener:
         self.rec.non_speaking_duration     = 0.5
 
     def _has_stop_phrase(self, text: str) -> bool:
-        """Check if text contains the end marker: 'over and out', 'over & out', 'over out', or trailing 'over'."""
+        """Check if text ends with the stop word 'over' (or 'over and out', 'over & out')."""
         t = text.lower().strip()
-        return bool(re.search(r"\b(over\s+(and\s+|&\s+)?out|over\b\s*$)", t))
+        return bool(re.search(r"\b(over\s+(and\s+|&\s+)?out|over)\b\s*$", t))
 
     def _strip_stop_phrase(self, text: str) -> str:
-        """Strip 'over and out' / 'over' from the end of a command string."""
-        cleaned = re.sub(r"\b(over\s+(and\s+|&\s+)?out|over\b\s*$)", "", text, flags=re.IGNORECASE)
+        """Strip 'over' (or 'over and out') from the end of a command string."""
+        cleaned = re.sub(r"\b(over\s+(and\s+|&\s+)?out|over)\b\s*$", "", text, flags=re.IGNORECASE)
         return cleaned.strip(" ,:.-")
 
     def loop(self, on_command):
-        """Blocking listen loop. Starts recording at 'jarvis' and stops when 'over and out' is heard."""
+        """Blocking listen loop. Starts recording at 'jarvis' and stops when 'over' is heard."""
         try:
             with sr.Microphone() as mic:
                 log.info("Calibrating microphone...")
                 self.rec.adjust_for_ambient_noise(mic, duration=0.8)
                 log.info("Continuous listening ACTIVE.")
-                log.info("Say 'Jarvis [your instructions] Over and out'")
+                log.info("Say 'Jarvis [your instructions] Over'")
 
                 while self.running:
                     try:
@@ -604,7 +624,7 @@ class Listener:
                                     self.is_recording = True
                                     self.buffer = [after_wake] if after_wake else []
                                     self.last_audio_time = time.time()
-                                    safe_print("  [Listening... say 'over and out' to execute]")
+                                    safe_print("  [Listening... say 'over' to execute]")
                         else:
                             # Currently recording multi-phrase command
                             self.last_audio_time = time.time()
@@ -619,14 +639,14 @@ class Listener:
                                 full_cmd = " ".join(b for b in self.buffer if b).strip()
                                 self.is_recording = False
                                 self.buffer = []
-                                log.info("Finished listening (over and out). Command: %r", full_cmd)
+                                log.info("Finished listening (over). Command: %r", full_cmd)
                                 if full_cmd:
                                     on_command(full_cmd)
                             else:
                                 self.buffer.append(text)
 
                     except sr.WaitTimeoutError:
-                        # Safety fallback: if user paused for >12s in recording mode without saying 'over and out'
+                        # Safety fallback: if user paused for >12s in recording mode without saying 'over'
                         if self.is_recording and (time.time() - self.last_audio_time > 12.0):
                             full_cmd = " ".join(b for b in self.buffer if b).strip()
                             self.is_recording = False
@@ -655,13 +675,15 @@ def main():
     print()
     print("  Voice Protocol:")
     print("    Start with: 'Jarvis ...'")
-    print("    End with:   '... Over and out'")
+    print("    End with:   '... Over'")
     print()
     print("  Examples:")
-    print("    'Jarvis introduce yourself to abhirup on whatsapp over and out'")
-    print("    'Jarvis play Let It Happen by Tame Impala over and out'")
-    print("    'Jarvis like this post over and out'")
-    print("    'Jarvis set volume to 70 over and out'")
+    print("    'Jarvis turn on over'")
+    print("    'Jarvis go to sleep over'")
+    print("    'Jarvis text in the group saying party tonight at 8 over'")
+    print("    'Jarvis introduce yourself to abhirup on whatsapp over'")
+    print("    'Jarvis play Let It Happen by Tame Impala over'")
+    print("    'Jarvis set volume to 70 over'")
     print()
     print("  Type 'exit' or 'quit' to stop.")
     print("=" * 60)
@@ -687,7 +709,7 @@ def main():
         brain.process(cmd)
 
     # greeting
-    greeting = "All systems online, sir. Say Jarvis followed by your command and over and out when you are done."
+    greeting = "All systems online, sir. Say Jarvis followed by your command and Over when you are done."
     safe_print(f"  JARVIS: {greeting}\n")
     voice.speak(greeting)
 
