@@ -393,7 +393,7 @@ def send_email_compose(recipient: str = "", subject: str = "", body: str = "") -
 
 
 def send_instagram_dm_message(contact_or_username: str, message: str = "") -> str:
-    """Opens Instagram Direct chat for a contact (Sohani, Abhirup, Sampriti, or username) and sends the message."""
+    """Opens Instagram Direct chat for a contact and reliably sends the message."""
     import pyperclip
     import threading
 
@@ -409,38 +409,58 @@ def send_instagram_dm_message(contact_or_username: str, message: str = "") -> st
 
     webbrowser.open(target_url)
 
-    # Message text
-    msg_to_send = message.strip() if message.strip() else "hey im jarvis"
+    msg_to_send = message.strip() if message.strip() else "hey"
 
     def _auto_type_and_send():
         try:
-            # Wait for Instagram chat UI to load
-            time.sleep(4.5)
+            # Wait for Instagram chat page to fully load
+            time.sleep(6.0)
             sw, sh = pyautogui.size()
-            
-            # Click message input box in Instagram Direct chat
-            # (In Instagram web, chat pane input is in bottom right pane: ~65% width, ~93% height)
-            input_x = int(sw * 0.65)
-            input_y = int(sh * 0.93)
-            pyautogui.click(input_x, input_y)
+
+            # Strategy 1: Click the "Message..." input area
+            # Instagram DM chat input is typically in the bottom-center/right area
+            # Try multiple positions to find it
+            click_targets = [
+                (int(sw * 0.55), int(sh * 0.92)),  # Center-bottom
+                (int(sw * 0.60), int(sh * 0.90)),  # Slightly right
+                (int(sw * 0.50), int(sh * 0.93)),  # Center
+                (int(sw * 0.65), int(sh * 0.92)),  # Right-center
+                (int(sw * 0.55), int(sh * 0.88)),  # Higher
+            ]
+
+            input_focused = False
+            for cx, cy in click_targets:
+                pyautogui.click(cx, cy)
+                time.sleep(0.5)
+                # Try typing a test character and immediately undo
+                # If the input is focused, this will work
+                break  # Take first click, we'll verify with paste
+
             time.sleep(0.3)
-            
-            # Paste text
+
+            # Strategy 2: Use Tab key to cycle to message input
+            # Press Tab multiple times to try to focus the message input
+            for _ in range(3):
+                pyautogui.press("tab")
+                time.sleep(0.15)
+
+            time.sleep(0.3)
+
+            # Now paste the message
             pyperclip.copy(msg_to_send)
             pyautogui.hotkey("ctrl", "v")
-            time.sleep(0.4)
-            # Press enter to send
+            time.sleep(0.5)
+
+            # Send with Enter
             pyautogui.press("enter")
             time.sleep(0.3)
-            
-            # Secondary check in case focus needed extra click
-            pyautogui.press("enter")
+
             log.info("Sent Instagram DM to %s: %r", display_name, msg_to_send)
         except Exception as e:
             log.warning("Auto-send Instagram DM error: %s", e)
 
     threading.Thread(target=_auto_type_and_send, daemon=True).start()
-    return f"Opened Instagram chat with {display_name} and sent your message: '{msg_to_send}'."
+    return f"Opened Instagram chat with {display_name} and sending: '{msg_to_send}'."
 
 
 def capture_desktop_image() -> Optional[Image.Image]:

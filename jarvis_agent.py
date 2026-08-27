@@ -170,13 +170,20 @@ class JarvisBrain:
                 TOOL_FUNCTION_MAP["play_youtube_video"](song_query)
                 return True
 
-        # Instagram Direct with Contacts (Sohani, Abhirup, Abhiroop, Sampriti, or username)
-        if "instagram" in t_clean and any(c in t_clean for c in ("sohani", "abhirup", "abhiroop", "sampriti", "message", "dm", "send", "chat")):
+        # Instagram Direct with Contacts (Sohani, Abhi/Abhirup, Sampriti, or username)
+        known_aliases = ("sohani", "sohu", "soha", "abhirup", "abhiroop", "abhi", "abirup", "abiroop", "sampriti", "sam", "samp")
+        if "instagram" in t_clean and (any(c in t_clean for c in known_aliases) or any(w in t_clean for w in ("message", "dm", "send", "chat"))):
             contact = ""
-            for c in ("sohani", "abhirup", "abhiroop", "sampriti"):
-                if c in t_clean:
+            for c in ("sohani", "sohu", "soha", "abhirup", "abhiroop", "abhi", "abirup", "abiroop", "sampriti", "sam", "samp"):
+                # Word boundary match
+                if re.search(rf"\b{c}\b", t_clean):
                     contact = c
                     break
+            if not contact:
+                for c in ("sohani", "sohu", "soha", "abhirup", "abhiroop", "abhi", "abirup", "abiroop", "sampriti", "sam", "samp"):
+                    if c in t_clean:
+                        contact = c
+                        break
             if not contact:
                 m_user = re.search(r"(?:to\s+|dm\s+)?@?([a-zA-Z0-9_.]+)", t_clean)
                 contact = m_user.group(1) if m_user else ""
