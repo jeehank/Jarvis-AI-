@@ -163,12 +163,30 @@ def open_folder(folder_name: str) -> str:
     return f"Folder '{folder_name}' not found."
 
 
-def play_youtube_search(query: str) -> str:
-    """Search and play a video or music track on YouTube."""
-    encoded = urllib.parse.quote_plus(query.strip())
-    url = f"https://www.youtube.com/results?search_query={encoded}"
-    webbrowser.open(url)
-    return f"Playing YouTube search for '{query}'."
+def play_youtube_video(query: str) -> str:
+    """Directly search, open, and start playing the top matching video or song on YouTube."""
+    import re
+    import urllib.request
+    q_clean = query.strip()
+    encoded = urllib.parse.quote_plus(q_clean)
+    search_url = f"https://www.youtube.com/results?search_query={encoded}"
+    
+    # Attempt to extract the first video ID so the video starts playing immediately
+    try:
+        req = urllib.request.Request(search_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+        html = urllib.request.urlopen(req, timeout=3.5).read().decode("utf-8", errors="ignore")
+        video_ids = re.findall(r"watch\?v=([a-zA-Z0-9_-]{11})", html)
+        if video_ids:
+            first_id = video_ids[0]
+            direct_url = f"https://www.youtube.com/watch?v={first_id}"
+            webbrowser.open(direct_url)
+            return f"Playing '{q_clean}' directly on YouTube."
+    except Exception as e:
+        log.warning("Could not extract direct video ID: %s", e)
+
+    # Fallback to search results page
+    webbrowser.open(search_url)
+    return f"Opened YouTube search for '{q_clean}'."
 
 
 def search_google(query: str) -> str:
@@ -314,14 +332,14 @@ JARVIS_TOOL_DECLARATIONS = [
         }
     },
     {
-        "name": "play_youtube_search",
-        "description": "Searches and plays a specific song, music, or video on YouTube.",
+        "name": "play_youtube_video",
+        "description": "Directly searches, opens, and starts playing a specific song, music track, or video on YouTube.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "query": {
                     "type": "STRING",
-                    "description": "The song title, artist, or video search query."
+                    "description": "The song title, artist, or video search query (e.g. 'Let It Happen Tame Impala')."
                 }
             },
             "required": ["query"]
@@ -428,7 +446,7 @@ TOOL_FUNCTION_MAP = {
     "open_website": open_website,
     "open_application": open_application,
     "open_folder": open_folder,
-    "play_youtube_search": play_youtube_search,
+    "play_youtube_video": play_youtube_video,
     "search_google": search_google,
     "set_system_volume": set_system_volume,
     "get_system_volume": get_system_volume,
