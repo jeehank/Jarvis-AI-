@@ -1,6 +1,7 @@
 """
-Jarvis Supercharged Interactive Voice AI Agent
-3-Phase Spoken Feedback, Audio Booster (Louder Voice), Gemini Multimodal Screen Vision, Messaging & PC Control.
+jarvis_agent.py
+Main voice agent loop. Listens for "Jarvis", runs fast-path commands
+or falls back to Gemini for complex tasks.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ import re
 import sys
 import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 from google import genai
@@ -21,82 +22,80 @@ import sounddevice as sd
 import speech_recognition as sr
 from elevenlabs.client import ElevenLabs
 
-# Load environment variables
-_ENV_PATH = Path(__file__).resolve().parent / ".env"
-load_dotenv(_ENV_PATH)
-
 from jarvis_tools import JARVIS_TOOL_DECLARATIONS, TOOL_FUNCTION_MAP, ACCOUNT_URLS
+
+# ── Setup ──────────────────────────────────────────────────────────
+
+_ENV = Path(__file__).resolve().parent / ".env"
+load_dotenv(_ENV)
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%H:%M:%S",
 )
-log = logging.getLogger("jarvis.agent")
+log = logging.getLogger("jarvis")
 
-SYSTEM_PROMPT = """You are JARVIS, an ultra-capable, polite, intelligent AI assistant and butler (like Tony Stark's JARVIS).
-You have full access to tools on the user's Windows computer to perform actions like:
-- Liking active posts/reels on screen (Instagram, YouTube, X)
-- Sending messages on WhatsApp, Gmail compose, or Instagram DMs
-- Viewing and analyzing the user's screen with vision
-- Opening any websites/accounts, desktop applications, folders
-- Controlling volume, typing text, scrolling, pressing hotkeys, playing YouTube videos/music, and taking screenshots.
+SYSTEM_PROMPT = (
+    "You are JARVIS, a capable, polite AI assistant (like Tony Stark's JARVIS). "
+    "You have tools to control the user's Windows PC: open apps/sites, send messages, "
+    "play music, control volume, take screenshots, like posts, read the screen, etc. "
+    "Keep spoken responses concise (1-2 sentences). Address the user as 'sir'."
+)
 
-Guidelines:
-1. When asked to perform computer tasks, always use the appropriate tool.
-2. Keep your spoken responses concise, witty, elegant, and natural (1-2 sentences maximum).
-3. Address the user respectfully as 'sir' or by context.
-"""
+# Contacts that map to Instagram DM threads
+KNOWN_IG_ALIASES = (
+    "sohani", "sohu", "soha",
+    "abhirup", "abhiroop", "abhi", "abirup", "abiroop",
+    "sampriti", "sam", "samp",
+)
 
 
-class JarvisVoice:
-    """Handles Text-To-Speech output using ElevenLabs with optimized low latency and Audio Boost."""
+# ── Voice (ElevenLabs TTS) ─────────────────────────────────────────
 
-    def __init__(self) -> None:
-        self.api_key: str = (os.environ.get("ELEVENLABS_API_KEY") or "").strip()
-        self.voice_id: str = (os.environ.get("ELEVENLABS_VOICE_ID") or "JBFqnCBsd6RMkjVDRZzb").strip()
-        self.model_id: str = (os.environ.get("ELEVENLABS_MODEL_ID") or "eleven_turbo_v2_5").strip()
-        self.output_format: str = (os.environ.get("ELEVENLABS_OUTPUT_FORMAT") or "pcm_24000").strip()
-        self.pcm_rate: int = 24000
-        # Volume boost multiplier (1.7x gain with soft peak limiter)
-        self.volume_boost: float = float(os.environ.get("JARVIS_VOLUME_BOOST", "1.7"))
-        self.client: Optional[ElevenLabs] = None
+class Voice:
+    """Text-to-speech via ElevenLabs with volume boost."""
+
+    def __init__(self):
+        self.api_key   = os.getenv("ELEVENLABS_API_KEY", "").strip()
+        self.voice_id  = os.getenv("ELEVENLABS_VOICE_ID", "JBFqnCBsd6RMkjVDRZzb").strip()
+        self.model_id  = os.getenv("ELEVENLABS_MODEL_ID", "eleven_turbo_v2_5").strip()
+        self.out_fmt   = os.getenv("ELEVENLABS_OUTPUT_FORMAT", "pcm_24000").strip()
+        self.rate      = 24000
+        self.boost     = float(os.getenv("JARVIS_VOLUME_BOOST", "1.7"))
+        self.client    = None
+
         if self.api_key:
             try:
                 self.client = ElevenLabs(api_key=self.api_key)
             except Exception as e:
-                log.warning("Could not initialize ElevenLabs client: %s", e)
+                log.warning("ElevenLabs init failed: %s", e)
 
-    def speak(self, text: str, block: bool = True) -> None:
-        """Speak text out loud using ElevenLabs with volume gain boost."""
+    def speak(self, text: str, block: bool = True):
+        """Say something out loud. Blocks by default."""
         if not text or not text.strip():
             return
-        log.info("JARVIS speaking: %r", text)
+        log.info("Speaking: %s", text.strip()[:80])
 
         if not self.client:
-            log.warning("ElevenLabs client not configured; skipping voice output.")
+            log.warning("No ElevenLabs client, skipping TTS.")
             return
 
         def _play():
             try:
-                audio_stream = self.client.text_to_speech.convert(
+                chunks = self.client.text_to_speech.convert(
                     voice_id=self.voice_id,
                     text=text.strip(),
                     model_id=self.model_id,
-                    output_format=self.output_format,
+                    output_format=self.out_fmt,
                 )
-                raw = b"".join(audio_stream)
+                raw = b"".join(chunks)
                 if not raw:
                     return
 
-                pcm_i16 = np.frombuffer(raw, dtype=np.int16)
-                pcm_f = pcm_i16.astype(np.float32) / 32768.0
-
-                # Apply Audio Gain Boost & Peak Limiter for louder, richer voice
-                pcm_boosted = pcm_f * self.volume_boost
-                pcm_boosted = np.clip(pcm_boosted, -0.98, 0.98)
-
-                sd.play(pcm_boosted, self.pcm_rate)
+                pcm = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+                pcm = np.clip(pcm * self.boost, -0.98, 0.98)
+                sd.play(pcm, self.rate)
                 sd.wait()
             except Exception as e:
                 log.error("TTS playback error: %s", e)
@@ -107,371 +106,428 @@ class JarvisVoice:
             threading.Thread(target=_play, daemon=True).start()
 
 
-class JarvisBrain:
-    """Handles conversation, Fast-Path Router, and Gemini Multimodal LLM function calling."""
+# ── Brain (command routing + Gemini) ───────────────────────────────
 
-    def __init__(self, voice: JarvisVoice) -> None:
-        self.voice: JarvisVoice = voice
-        self.gemini_key: str = (os.environ.get("GEMINI_API_KEY") or "").strip()
-        self.client: Optional[genai.Client] = None
-        self.chat_history: List[types.Content] = []
-        self._init_client()
+class Brain:
+    """Routes commands: fast-path for common tasks, Gemini for everything else."""
 
-    def _init_client(self) -> None:
-        if self.gemini_key:
+    def __init__(self, voice: Voice):
+        self.voice   = voice
+        self.client  = None
+        self.history: List[types.Content] = []
+
+        api_key = os.getenv("GEMINI_API_KEY", "").strip()
+        if api_key:
             try:
-                self.client = genai.Client(api_key=self.gemini_key)
-                log.info("Gemini AI Brain initialized successfully (gemini-3.6-flash).")
+                self.client = genai.Client(api_key=api_key)
+                log.info("Gemini client ready.")
             except Exception as e:
-                log.error("Failed to initialize Gemini client: %s", e)
+                log.error("Gemini init failed: %s", e)
         else:
-            log.warning("No GEMINI_API_KEY found in .env.")
+            log.warning("GEMINI_API_KEY not set.")
 
-    def process_command(self, user_text: str) -> None:
-        """Process user command with 3-Phase Flow (Pre-Ack -> Action -> Post-Confirmation)."""
-        clean_text = user_text.strip()
-        if not clean_text:
+    # ── public entry point ──
+
+    def process(self, text: str):
+        """Handle a user command."""
+        text = text.strip()
+        if not text:
             return
 
-        # 1. Fast-Path Router for instant execution
-        fast_handled = self._fast_path_router(clean_text)
-        if fast_handled:
+        if self._try_fast_path(text):
             return
 
-        # 2. Complex / AI Reasoning Flow with Gemini
-        self._process_gemini_3phase(clean_text)
+        self._ask_gemini(text)
 
-    def _fast_path_router(self, text: str) -> bool:
-        """Instant zero-latency command parser with 3-Phase Spoken Feedback."""
-        t = text.lower().strip()
-        t_clean = re.sub(r"^(hey\s+)?jarvis[\s,]*", "", t, flags=re.IGNORECASE).strip()
-        if not t_clean:
-            self.voice.speak("Yes sir, I'm online. How may I help you?")
+    # ── fast-path router ──
+
+    def _try_fast_path(self, text: str) -> bool:
+        """
+        Match common patterns and execute immediately (no API call).
+        Returns True if handled.
+        """
+        t = re.sub(r"^(hey\s+)?jarvis[\s,]*", "", text.lower().strip(), flags=re.IGNORECASE).strip()
+
+        if not t:
+            self.voice.speak("Yes sir, I'm here. What do you need?")
             return True
 
-        # Like Post: "like this post", "like this", "like reel", "like post"
-        if "like" in t_clean and ("post" in t_clean or "this" in t_clean or "reel" in t_clean or "photo" in t_clean or "video" in t_clean or "picture" in t_clean):
-            # Phase 1: Pre-Ack
-            self.voice.speak("Locating the post on your screen and liking it now, sir.")
-            # Phase 2: Action with Vision & Mouse Movement
-            res = TOOL_FUNCTION_MAP["like_current_post"]("instagram")
-            # Phase 3: Post-Ack
-            print(f"JARVIS: {res}\n")
-            self.voice.speak("Done, sir. Post located and liked.")
+        return (
+            self._handle_like(t)
+            or self._handle_play(t)
+            or self._handle_instagram(t)
+            or self._handle_whatsapp(t)
+            or self._handle_screen(t)
+            or self._handle_scroll(t)
+            or self._handle_open(t)
+            or self._handle_volume(t)
+            or self._handle_screenshot(t)
+            or self._handle_desktop_lock(t)
+            or self._handle_search(t)
+        )
+
+    # ── individual fast-path handlers ──
+
+    def _handle_like(self, t: str) -> bool:
+        keywords = ("post", "this", "reel", "photo", "video", "picture")
+        if "like" not in t or not any(k in t for k in keywords):
+            return False
+
+        self.voice.speak("Locating the post and liking it now, sir.")
+        res = TOOL_FUNCTION_MAP["like_current_post"]("instagram")
+        print(f"  JARVIS: {res}")
+        self.voice.speak("Done, sir. Post liked.")
+        return True
+
+    def _handle_play(self, t: str) -> bool:
+        if not t.startswith("play "):
+            return False
+
+        song = t[5:].strip()
+        if not song:
+            return False
+
+        self.voice.speak(f"Playing {song.title()} for you, sir.")
+        TOOL_FUNCTION_MAP["play_youtube_video"](song)
+        return True
+
+    def _handle_instagram(self, t: str) -> bool:
+        trigger_words = ("message", "dm", "send", "chat")
+        has_contact = any(c in t for c in KNOWN_IG_ALIASES)
+        has_action  = any(w in t for w in trigger_words)
+
+        if "instagram" not in t or not (has_contact or has_action):
+            return False
+
+        # figure out who
+        contact = self._find_ig_contact(t)
+
+        # figure out the message body
+        msg_match = re.search(r"(?:saying|message|that|text)\s+(.+)", t)
+        message = msg_match.group(1).strip() if msg_match else "hey"
+
+        display = contact.capitalize() if contact else "contact"
+        self.voice.speak(f"Opening Instagram chat with {display} and sending your message, sir.")
+        res = TOOL_FUNCTION_MAP["send_instagram_dm_message"](contact, message)
+        print(f"  JARVIS: {res}")
+        return True
+
+    def _find_ig_contact(self, t: str) -> str:
+        """Try to match a known alias in the text."""
+        # exact word boundary first
+        for name in KNOWN_IG_ALIASES:
+            if re.search(rf"\b{name}\b", t):
+                return name
+        # substring fallback
+        for name in KNOWN_IG_ALIASES:
+            if name in t:
+                return name
+        # raw username fallback
+        m = re.search(r"(?:to\s+|dm\s+)?@?([a-zA-Z0-9_.]+)", t)
+        return m.group(1) if m else ""
+
+    def _handle_whatsapp(self, t: str) -> bool:
+        if "whatsapp" not in t:
+            return False
+
+        # explicit desktop app
+        if any(w in t for w in ("app", "desktop", "application")):
+            self.voice.speak("Opening WhatsApp Desktop, sir.")
+            TOOL_FUNCTION_MAP["open_whatsapp"]("app")
             return True
 
-        # Play Music: "play [song]"
-        if t_clean.startswith("play "):
-            song_query = t_clean[5:].strip()
-            if song_query:
-                # Phase 1: Pre-Ack
-                self.voice.speak(f"Playing {song_query.title()} for you now, sir.")
-                # Phase 2: Action
-                TOOL_FUNCTION_MAP["play_youtube_video"](song_query)
-                return True
-
-        # Instagram Direct with Contacts (Sohani, Abhi/Abhirup, Sampriti, or username)
-        known_aliases = ("sohani", "sohu", "soha", "abhirup", "abhiroop", "abhi", "abirup", "abiroop", "sampriti", "sam", "samp")
-        if "instagram" in t_clean and (any(c in t_clean for c in known_aliases) or any(w in t_clean for w in ("message", "dm", "send", "chat"))):
-            contact = ""
-            for c in ("sohani", "sohu", "soha", "abhirup", "abhiroop", "abhi", "abirup", "abiroop", "sampriti", "sam", "samp"):
-                # Word boundary match
-                if re.search(rf"\b{c}\b", t_clean):
-                    contact = c
-                    break
-            if not contact:
-                for c in ("sohani", "sohu", "soha", "abhirup", "abhiroop", "abhi", "abirup", "abiroop", "sampriti", "sam", "samp"):
-                    if c in t_clean:
-                        contact = c
-                        break
-            if not contact:
-                m_user = re.search(r"(?:to\s+|dm\s+)?@?([a-zA-Z0-9_.]+)", t_clean)
-                contact = m_user.group(1) if m_user else ""
-
-            msg_match = re.search(r"(?:saying|message|that|text)\s+(.+)", t_clean)
-            message_text = msg_match.group(1).strip() if msg_match else "hey im jarvis"
-
-            self.voice.speak(f"Opening Instagram chat with {contact.capitalize() if contact else 'contact'} and sending your message, sir.")
-            res = TOOL_FUNCTION_MAP["send_instagram_dm_message"](contact, message_text)
-            print(f"JARVIS: {res}\n")
+        # send a message
+        m = re.search(r"(?:to\s+)?([a-zA-Z0-9_+]+)\s+(?:saying|message|that)\s+(.+)", t)
+        if m:
+            contact, msg = m.group(1), m.group(2)
+            self.voice.speak(f"Sending your message to {contact} on WhatsApp, sir.")
+            TOOL_FUNCTION_MAP["send_whatsapp_message"](contact, msg)
             return True
 
-        # WhatsApp: App vs Web vs Send Message
-        if "whatsapp" in t_clean:
-            if "app" in t_clean or "desktop" in t_clean or "application" in t_clean:
-                self.voice.speak("Opening WhatsApp Desktop Application for you now, sir.")
-                TOOL_FUNCTION_MAP["open_whatsapp"]("app")
-                return True
-            match = re.search(r"(?:to\s+)?([a-zA-Z0-9_+]+)\s+(?:saying|message|that)\s+(.+)", t_clean)
-            if match:
-                contact, msg = match.group(1), match.group(2)
-                self.voice.speak(f"Opening WhatsApp chat for {contact} with your message, sir.")
-                TOOL_FUNCTION_MAP["send_whatsapp_message"](contact, msg)
-                return True
-            else:
-                self.voice.speak("Opening WhatsApp for you now, sir.")
-                TOOL_FUNCTION_MAP["open_whatsapp"]("web")
+        # just open it
+        self.voice.speak("Opening WhatsApp for you, sir.")
+        TOOL_FUNCTION_MAP["open_whatsapp"]("web")
+        return True
+
+    def _handle_screen(self, t: str) -> bool:
+        triggers = ("look", "what", "read", "see", "analyze")
+        if "screen" not in t or not any(w in t for w in triggers):
+            return False
+
+        self.voice.speak("Looking at your screen now, sir.")
+        result = TOOL_FUNCTION_MAP["see_and_analyze_screen"](t)
+        print(f"  JARVIS: {result}")
+        self.voice.speak(result)
+        return True
+
+    def _handle_scroll(self, t: str) -> bool:
+        if "scroll" not in t:
+            return False
+        direction = "up" if "up" in t else "down"
+        TOOL_FUNCTION_MAP["scroll_screen"](direction, 6)
+        return True
+
+    def _handle_open(self, t: str) -> bool:
+        if not t.startswith("open "):
+            return False
+
+        target = t[5:].replace("my ", "").replace("the ", "").strip()
+        self.voice.speak(f"Opening {target.title()}, sir.")
+
+        # check known websites
+        for key in ACCOUNT_URLS:
+            if key in target:
+                TOOL_FUNCTION_MAP["open_website"](key)
                 return True
 
-        # Screen Vision: "what is on my screen", "look at my screen", "read my screen"
-        if "screen" in t_clean and ("look" in t_clean or "what" in t_clean or "read" in t_clean or "see" in t_clean or "analyze" in t_clean):
-            self.voice.speak("Looking at your screen right now, sir.")
-            result = TOOL_FUNCTION_MAP["see_and_analyze_screen"](t_clean)
-            print(f"JARVIS: {result}\n")
-            self.voice.speak(result)
+        # check common folders
+        folders = ("downloads", "documents", "desktop", "pictures", "videos", "music")
+        if target in folders:
+            TOOL_FUNCTION_MAP["open_folder"](target)
             return True
 
-        # Scroll Screen: "scroll down", "scroll up"
-        if "scroll" in t_clean:
-            dir_scroll = "up" if "up" in t_clean else "down"
-            TOOL_FUNCTION_MAP["scroll_screen"](dir_scroll, 6)
+        # fall back to app launcher
+        TOOL_FUNCTION_MAP["open_application"](target)
+        return True
+
+    def _handle_volume(self, t: str) -> bool:
+        if "volume" not in t:
+            return False
+
+        nums = re.findall(r"\d+", t)
+        if nums:
+            level = int(nums[0])
+            TOOL_FUNCTION_MAP["set_system_volume"](level)
+            self.voice.speak(f"Volume set to {level}%, sir.")
             return True
 
-        # Open Apps / Sites
-        if t_clean.startswith("open "):
-            target = t_clean[5:].replace("my ", "").replace("the ", "").strip()
-            self.voice.speak(f"Opening {target.title()} for you, sir.")
-            if target in ACCOUNT_URLS or any(k in target for k in ACCOUNT_URLS):
-                for k in ACCOUNT_URLS:
-                    if k in target:
-                        TOOL_FUNCTION_MAP["open_website"](k)
-                        return True
-            if target in ("downloads", "documents", "desktop", "pictures", "videos", "music"):
-                TOOL_FUNCTION_MAP["open_folder"](target)
-                return True
-            TOOL_FUNCTION_MAP["open_application"](target)
+        if any(w in t for w in ("up", "increase", "higher")):
+            TOOL_FUNCTION_MAP["set_system_volume"](85)
+            self.voice.speak("Volume up to 85%, sir.")
             return True
-
-        # Volume
-        if "volume" in t_clean:
-            digits = re.findall(r"\d+", t_clean)
-            if digits:
-                vol_num = int(digits[0])
-                TOOL_FUNCTION_MAP["set_system_volume"](vol_num)
-                self.voice.speak(f"Volume set to {vol_num}%, sir.")
-                return True
-            if "up" in t_clean or "increase" in t_clean or "higher" in t_clean:
-                TOOL_FUNCTION_MAP["set_system_volume"](85)
-                self.voice.speak("Turning volume up to 85%, sir.")
-                return True
-            if "down" in t_clean or "decrease" in t_clean or "lower" in t_clean:
-                TOOL_FUNCTION_MAP["set_system_volume"](30)
-                self.voice.speak("Lowered volume to 30%, sir.")
-                return True
-            if "mute" in t_clean:
-                TOOL_FUNCTION_MAP["system_action"]("mute")
-                self.voice.speak("Muted audio, sir.")
-                return True
-            if "unmute" in t_clean:
-                TOOL_FUNCTION_MAP["system_action"]("unmute")
-                self.voice.speak("Unmuted audio, sir.")
-                return True
-
-        # Screenshot
-        if "screenshot" in t_clean:
-            self.voice.speak("Taking screenshot now, sir.")
-            TOOL_FUNCTION_MAP["take_screenshot"]()
-            self.voice.speak("Screenshot captured and saved, sir.")
+        if any(w in t for w in ("down", "decrease", "lower")):
+            TOOL_FUNCTION_MAP["set_system_volume"](30)
+            self.voice.speak("Volume down to 30%, sir.")
             return True
-
-        # Show desktop / Lock PC
-        if "show desktop" in t_clean or "minimize all" in t_clean:
-            TOOL_FUNCTION_MAP["system_action"]("minimize_all")
-            self.voice.speak("Showing desktop, sir.")
+        if "mute" in t:
+            TOOL_FUNCTION_MAP["system_action"]("mute")
+            self.voice.speak("Muted, sir.")
             return True
-        if "lock pc" in t_clean or "lock computer" in t_clean:
-            self.voice.speak("Locking your workstation now, sir.")
-            TOOL_FUNCTION_MAP["system_action"]("lock")
+        if "unmute" in t:
+            TOOL_FUNCTION_MAP["system_action"]("unmute")
+            self.voice.speak("Unmuted, sir.")
             return True
-
-        # Google Search
-        if t_clean.startswith("search ") or t_clean.startswith("google "):
-            q = re.sub(r"^(search|google)(\s+for)?\s+", "", t_clean).strip()
-            if q:
-                self.voice.speak(f"Searching Google for {q}, sir.")
-                TOOL_FUNCTION_MAP["search_google"](q)
-                return True
 
         return False
 
-    def _process_gemini_3phase(self, user_text: str) -> None:
-        """3-Phase Processing with Gemini 3.6 Flash."""
+    def _handle_screenshot(self, t: str) -> bool:
+        if "screenshot" not in t:
+            return False
+        self.voice.speak("Taking a screenshot, sir.")
+        TOOL_FUNCTION_MAP["take_screenshot"]()
+        self.voice.speak("Screenshot saved, sir.")
+        return True
+
+    def _handle_desktop_lock(self, t: str) -> bool:
+        if "show desktop" in t or "minimize all" in t:
+            TOOL_FUNCTION_MAP["system_action"]("minimize_all")
+            self.voice.speak("Showing desktop, sir.")
+            return True
+        if "lock pc" in t or "lock computer" in t:
+            self.voice.speak("Locking your PC, sir.")
+            TOOL_FUNCTION_MAP["system_action"]("lock")
+            return True
+        return False
+
+    def _handle_search(self, t: str) -> bool:
+        if not (t.startswith("search ") or t.startswith("google ")):
+            return False
+        query = re.sub(r"^(search|google)(\s+for)?\s+", "", t).strip()
+        if not query:
+            return False
+        self.voice.speak(f"Searching for {query}, sir.")
+        TOOL_FUNCTION_MAP["search_google"](query)
+        return True
+
+    # ── Gemini fallback ──
+
+    def _ask_gemini(self, user_text: str):
+        """Send to Gemini with tool access for complex requests."""
         if not self.client:
-            self.voice.speak("I am ready for your command, sir.")
+            self.voice.speak("I'm ready for your command, sir.")
             return
 
-        # Phase 1: Pre-Ack
-        self.voice.speak("Looking into that for you now, sir.")
+        self.voice.speak("Working on that now, sir.")
 
         try:
-            tools_spec = [
+            tools = [
                 types.Tool(
                     function_declarations=[
                         types.FunctionDeclaration(
-                            name=t["name"],
-                            description=t["description"],
-                            parameters=t["parameters"]
-                        ) for t in JARVIS_TOOL_DECLARATIONS
+                            name=d["name"],
+                            description=d["description"],
+                            parameters=d["parameters"],
+                        )
+                        for d in JARVIS_TOOL_DECLARATIONS
                     ]
                 )
             ]
 
-            self.chat_history.append(
+            self.history.append(
                 types.Content(role="user", parts=[types.Part.from_text(text=user_text)])
             )
 
             config = types.GenerateContentConfig(
                 system_instruction=SYSTEM_PROMPT,
                 temperature=0.6,
-                tools=tools_spec
+                tools=tools,
             )
 
-            # Phase 2: Action / Model call
             response = self.client.models.generate_content(
                 model="gemini-3.6-flash",
-                contents=self.chat_history,
+                contents=self.history,
                 config=config,
             )
 
-            # Tool calling execution
+            # execute any tool calls the model requested
             if response.function_calls:
+                result = ""
                 for call in response.function_calls:
-                    fn_name = call.name
-                    fn_args: Dict[str, Any] = call.args or {}
-                    log.info("JARVIS executing tool: %s(%s)", fn_name, fn_args)
+                    fn = call.name
+                    args = call.args or {}
+                    log.info("Tool call: %s(%s)", fn, args)
 
-                    if fn_name in TOOL_FUNCTION_MAP:
-                        tool_result = TOOL_FUNCTION_MAP[fn_name](**fn_args)
+                    if fn in TOOL_FUNCTION_MAP:
+                        result = TOOL_FUNCTION_MAP[fn](**args)
                     else:
-                        tool_result = f"Tool {fn_name} completed."
+                        result = f"Tool {fn} completed."
 
                 if response.candidates:
-                    self.chat_history.append(response.candidates[0].content)
+                    self.history.append(response.candidates[0].content)
 
-                # Phase 3: Post-Ack Confirmation
-                final_text = f"Done, sir. {tool_result}"
-                print(f"JARVIS: {final_text}\n")
-                self.voice.speak(final_text)
+                reply = f"Done, sir. {result}"
+                print(f"  JARVIS: {reply}")
+                self.voice.speak(reply)
                 return
 
-            reply_text = response.text or "Right away, sir."
+            # plain text reply
+            reply = response.text or "Right away, sir."
             if response.candidates:
-                self.chat_history.append(response.candidates[0].content)
+                self.history.append(response.candidates[0].content)
 
-            # Phase 3: Speak final answer
-            print(f"JARVIS: {reply_text}\n")
-            self.voice.speak(reply_text)
+            print(f"  JARVIS: {reply}")
+            self.voice.speak(reply)
 
         except Exception as e:
-            log.error("Gemini API error: %s", e)
+            log.error("Gemini error: %s", e)
             self.voice.speak("Task completed, sir.")
 
 
-class JarvisContinuousListener:
-    """Continuously listens to the microphone with snappy silence detection."""
+# ── Listener (always-on mic) ──────────────────────────────────────
 
-    def __init__(self, wake_word: str = "jarvis") -> None:
-        self.wake_word: str = wake_word.lower()
-        self.recognizer: sr.Recognizer = sr.Recognizer()
-        self.recognizer.energy_threshold = 260
-        self.recognizer.dynamic_energy_threshold = True
-        self.recognizer.pause_threshold = 0.55
-        self.recognizer.phrase_threshold = 0.2
-        self.recognizer.non_speaking_duration = 0.4
-        self.is_running: bool = True
+class Listener:
+    """Continuously listens to the mic for the wake word."""
 
-    def listen_loop(self, on_command: Any) -> None:
-        """Continuous background listening loop."""
+    def __init__(self, wake_word: str = "jarvis"):
+        self.wake_word = wake_word.lower()
+        self.running   = True
+
+        self.rec = sr.Recognizer()
+        self.rec.energy_threshold         = 260
+        self.rec.dynamic_energy_threshold = True
+        self.rec.pause_threshold          = 0.55
+        self.rec.phrase_threshold          = 0.2
+        self.rec.non_speaking_duration     = 0.4
+
+    def loop(self, on_command):
+        """Blocking listen loop. Calls on_command(text) when wake word is heard."""
         try:
-            with sr.Microphone() as source:
-                log.info("Calibrating microphone for room acoustics...")
-                self.recognizer.adjust_for_ambient_noise(source, duration=0.8)
-                log.info("Continuous listening ACTIVE. Say '%s ...' anytime!", self.wake_word.upper())
+            with sr.Microphone() as mic:
+                log.info("Calibrating mic...")
+                self.rec.adjust_for_ambient_noise(mic, duration=0.8)
+                log.info("Listening. Say '%s' to activate.", self.wake_word)
 
-                while self.is_running:
+                while self.running:
                     try:
-                        audio = self.recognizer.listen(source, timeout=2.5, phrase_time_limit=7.0)
-                        text = self.recognizer.recognize_google(audio).strip()
-
+                        audio = self.rec.listen(mic, timeout=2.5, phrase_time_limit=7.0)
+                        text  = self.rec.recognize_google(audio).strip()
                         if not text:
                             continue
 
-                        text_lower = text.lower()
-                        if self.wake_word in text_lower:
-                            log.info("⚡ Wake word detected! Prompt: %r", text)
+                        if self.wake_word in text.lower():
+                            log.info("Wake word detected: %r", text)
                             on_command(text)
-                        else:
-                            log.debug("Heard non-wake speech: %r", text)
 
                     except sr.WaitTimeoutError:
                         continue
                     except sr.UnknownValueError:
                         continue
                     except Exception as e:
-                        log.debug("Listen chunk error: %s", e)
+                        log.debug("Listen error: %s", e)
                         continue
 
         except Exception as e:
-            log.error("Microphone initialization error: %s", e)
+            log.error("Mic init error: %s", e)
 
 
-def run_interactive_jarvis() -> None:
-    """Main interactive Jarvis loop with 3-Phase Spoken Feedback and Screen Vision."""
-    print("=" * 65)
-    print("⚡ JARVIS SUPERCHARGED MULTIMODAL ASSISTANT ONLINE ⚡")
-    print("=" * 65)
-    print("• Listening continuously in the background.")
-    print("• Say: 'Jarvis, like this post'")
-    print("• Say: 'Jarvis, look at my screen and tell me what this is'")
-    print("• Say: 'Jarvis, message Alex on WhatsApp saying I will be there soon'")
-    print("• Say: 'Jarvis, email john@example.com about meeting tomorrow'")
-    print("• Say: 'Jarvis, play Let It Happen by Tame Impala'")
-    print("• Say: 'Jarvis, set volume to 70%' / 'Jarvis, scroll down'")
-    print("• Say or type 'exit' / 'quit' to stop.")
-    print("=" * 65)
+# ── Main ──────────────────────────────────────────────────────────
 
-    voice = JarvisVoice()
-    brain = JarvisBrain(voice=voice)
-    listener = JarvisContinuousListener(wake_word="jarvis")
+def main():
+    print()
+    print("=" * 55)
+    print("  JARVIS  -  Voice Assistant")
+    print("=" * 55)
+    print()
+    print("  Commands you can try:")
+    print("    'Jarvis, play Let It Happen by Tame Impala'")
+    print("    'Jarvis, like this post'")
+    print("    'Jarvis, look at my screen'")
+    print("    'Jarvis, message Alex on WhatsApp saying I'm on my way'")
+    print("    'Jarvis, set volume to 70'")
+    print("    'Jarvis, open Instagram'")
+    print()
+    print("  Type 'exit' or 'quit' to stop.")
+    print("=" * 55)
+    print()
 
-    def handle_command(cmd: str) -> None:
-        if not cmd.strip():
+    voice    = Voice()
+    brain    = Brain(voice)
+    listener = Listener(wake_word="jarvis")
+
+    def handle(cmd: str):
+        cmd = cmd.strip()
+        if not cmd:
             return
-        print(f"\nYou > {cmd}")
+
+        print(f"\n  You > {cmd}")
 
         if cmd.lower() in ("exit", "quit", "goodbye", "bye jarvis", "stop jarvis"):
-            farewell = "Powering down systems. Have a wonderful day, sir."
-            print(f"JARVIS: {farewell}")
-            voice.speak(farewell)
-            listener.is_running = False
+            print("  JARVIS: Powering down. Have a good day, sir.")
+            voice.speak("Powering down. Have a good day, sir.")
+            listener.running = False
             sys.exit(0)
 
-        brain.process_command(cmd)
+        brain.process(cmd)
 
-    # Initial greeting
-    greeting = "All systems online and at full capacity, sir. Just say Jarvis whenever you need me."
-    print(f"\nJARVIS: {greeting}\n")
+    # greeting
+    greeting = "All systems online, sir. Say Jarvis whenever you need me."
+    print(f"  JARVIS: {greeting}\n")
     voice.speak(greeting)
 
-    # Start continuous microphone listener on background thread
-    mic_thread = threading.Thread(
-        target=listener.listen_loop,
-        args=(handle_command,),
-        daemon=True,
-    )
-    mic_thread.start()
+    # mic listener on background thread
+    threading.Thread(target=listener.loop, args=(handle,), daemon=True).start()
 
-    # Allow keyboard input simultaneously
-    while listener.is_running:
+    # also accept typed input
+    while listener.running:
         try:
             typed = input().strip()
             if typed:
-                handle_command(typed)
+                handle(typed)
         except (KeyboardInterrupt, EOFError):
-            print("\nJARVIS: Shutting down. Goodbye, sir.")
-            listener.is_running = False
+            print("\n  JARVIS: Shutting down. Goodbye, sir.")
+            listener.running = False
             break
 
 
 if __name__ == "__main__":
-    run_interactive_jarvis()
+    main()
