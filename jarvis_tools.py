@@ -198,34 +198,91 @@ def play_youtube_video(query: str) -> str:
     return f"Opened YouTube search for '{q_clean}'."
 
 
+# Specific Instagram contact direct thread URLs
+INSTAGRAM_CONTACT_URLS = {
+    "sohani": "https://www.instagram.com/direct/t/17842231331975509/",
+    "abhirup": "https://www.instagram.com/direct/t/17843980718954777/",
+    "sampriti": "https://www.instagram.com/direct/t/17845065615183091/",
+}
+
+
+def open_whatsapp(mode: str = "web") -> str:
+    """Opens WhatsApp. mode='app' opens the native Windows Desktop app; mode='web' opens WhatsApp Web."""
+    if "app" in mode.lower() or "desktop" in mode.lower():
+        try:
+            if sys.platform == "win32":
+                subprocess.Popen(["explorer.exe", r"shell:AppsFolder\5319275A.WhatsAppDesktop_cv1g1gvanyjgm!App"])
+            else:
+                subprocess.Popen(["whatsapp"])
+            return "Launched WhatsApp Desktop App."
+        except Exception as e:
+            log.warning("Could not launch WhatsApp App directly: %s; opening Web.", e)
+            webbrowser.open("https://web.whatsapp.com")
+            return "Opened WhatsApp Web."
+    else:
+        webbrowser.open("https://web.whatsapp.com")
+        return "Opened WhatsApp Web."
+
+
 def like_current_post(platform: str = "instagram") -> str:
-    """Likes the post, reel, or video currently visible on screen (Instagram, YouTube, Twitter/X)."""
-    p = platform.lower().strip()
+    """Uses Gemini Vision to locate the active post on screen, moves the mouse directly to it, and likes it."""
     try:
-        # Instagram like action: 'L' keyboard shortcut + double click center of screen
-        if "insta" in p:
-            # 1. Press 'l' key (Instagram web shortcut to like focused post)
-            pyautogui.press("l")
-            # 2. Also double click near center where post/reel is displayed
-            sw, sh = pyautogui.size()
-            cx, cy = sw // 2, sh // 2
-            pyautogui.doubleClick(cx, cy)
-            return "Liked the active Instagram post."
+        sw, sh = pyautogui.size()
+        gemini_key = (os.environ.get("GEMINI_API_KEY") or "").strip()
+        img = capture_desktop_image()
 
-        elif "x" in p or "twitter" in p:
-            pyautogui.press("l")
-            return "Liked the active post on X."
+        target_x, target_y = sw // 2, sh // 2
+        located = False
 
-        elif "youtube" in p:
-            # YouTube like button shortcut or coordinate
-            pyautogui.press("i")
-            return "Interacted with YouTube video."
+        if gemini_key and img:
+            try:
+                from google import genai
+                from google.genai import types
+                import json
 
-        else:
-            # Generic double click
-            sw, sh = pyautogui.size()
-            pyautogui.doubleClick(sw // 2, sh // 2)
-            return "Liked the active post."
+                img_copy = img.copy()
+                img_copy.thumbnail((1280, 720))
+                img_byte_arr = io.BytesIO()
+                img_copy.save(img_byte_arr, format="JPEG", quality=80)
+                img_bytes = img_byte_arr.getvalue()
+
+                client = genai.Client(api_key=gemini_key)
+                prompt = (
+                    "Look at this screenshot. Locate the main post, photo, reel, or like heart button visible on screen. "
+                    "Return ONLY a JSON object with percentage coordinates (0 to 100): "
+                    '{"x_percent": 50.0, "y_percent": 50.0}'
+                )
+
+                resp = client.models.generate_content(
+                    model="gemini-3.6-flash",
+                    contents=[
+                        types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg"),
+                        prompt
+                    ]
+                )
+                if resp.text:
+                    m = re.search(r"\{[^{}]+\}", resp.text)
+                    if m:
+                        coords = json.loads(m.group(0))
+                        xp = float(coords.get("x_percent", 50.0))
+                        yp = float(coords.get("y_percent", 50.0))
+                        target_x = int(sw * xp / 100.0)
+                        target_y = int(sh * yp / 100.0)
+                        located = True
+            except Exception as e:
+                log.warning("Vision coordinate detection fallback: %s", e)
+
+        # Move mouse directly to the post location on screen
+        pyautogui.moveTo(target_x, target_y, duration=0.25)
+        # Double click the post to like it
+        pyautogui.doubleClick(target_x, target_y)
+        time.sleep(0.1)
+        # Also send 'l' key (Instagram web shortcut)
+        pyautogui.press("l")
+
+        if located:
+            return f"Located post on screen at ({target_x}, {target_y}) and liked it."
+        return "Moved mouse to active post and liked it."
 
     except Exception as e:
         return f"Could not like post: {e}"
@@ -260,12 +317,46 @@ def send_email_compose(recipient: str = "", subject: str = "", body: str = "") -
     return f"Opened Gmail compose draft to {recipient or 'recipient'} with subject '{subject}'."
 
 
-def send_instagram_dm(username: str, message: str = "") -> str:
-    """Opens Instagram direct message chat with a user."""
-    u_clean = username.strip().replace("@", "")
-    url = f"https://www.instagram.com/direct/t/{u_clean}/" if u_clean else "https://www.instagram.com/direct/inbox/"
-    webbrowser.open(url)
-    return f"Opened Instagram Direct Message for @{u_clean}."
+def send_instagram_dm_message(contact_or_username: str, message: str = "") -> str:
+    """Opens Instagram Direct chat for a contact (Sohani, Abhirup, Sampriti, or username) and sends the message."""
+    import pyperclip
+    import threading
+
+    c_lower = contact_or_username.lower().strip().replace("@", "")
+
+    # Check mapped threads
+    if c_lower in INSTAGRAM_CONTACT_URLS:
+        target_url = INSTAGRAM_CONTACT_URLS[c_lower]
+        display_name = c_lower.capitalize()
+    else:
+        target_url = f"https://www.instagram.com/direct/t/{c_lower}/" if c_lower else "https://www.instagram.com/direct/inbox/"
+        display_name = f"@{c_lower}"
+
+    webbrowser.open(target_url)
+
+    # If message is provided, type and send it
+    msg_to_send = message.strip() if message.strip() else "hey im jarvis"
+
+    def _auto_type_and_send():
+        try:
+            # Wait for Instagram chat UI to load
+            time.sleep(4.0)
+            # Focus message input box in Instagram web (bottom area)
+            sw, sh = pyautogui.size()
+            pyautogui.click(sw // 2, sh - 80)
+            time.sleep(0.3)
+            # Paste text
+            pyperclip.copy(msg_to_send)
+            pyautogui.hotkey("ctrl", "v")
+            time.sleep(0.3)
+            # Press enter to send
+            pyautogui.press("enter")
+            log.info("Sent Instagram DM to %s: %r", display_name, msg_to_send)
+        except Exception as e:
+            log.warning("Auto-send Instagram DM error: %s", e)
+
+    threading.Thread(target=_auto_type_and_send, daemon=True).start()
+    return f"Opened Instagram Direct chat with {display_name} and sent message: '{msg_to_send}'."
 
 
 def capture_desktop_image() -> Optional[Image.Image]:
