@@ -570,9 +570,27 @@ def type_keyboard_text(text: str, press_enter: bool = True) -> str:
 
 
 def system_action(action: str) -> str:
-    """Performs system actions: 'lock', 'minimize_all', 'mute', 'unmute', 'toggle_mute'."""
+    """Performs system actions: 'turn_on', 'sleep', 'lock', 'minimize_all', 'mute', 'unmute', 'toggle_mute'."""
     act = action.lower().strip()
-    if act == "lock":
+    if act in ("turn_on", "wake", "wake_up", "screen_on", "turn_on_screen", "turn_on_display", "display_on"):
+        if sys.platform == "win32":
+            import ctypes
+            # Send monitor power ON message
+            ctypes.windll.user32.SendMessageW(0xFFFF, 0x0112, 0xF170, -1)
+            # Wiggle mouse and press shift to wake any sleeping screen
+            pyautogui.moveRel(1, 1)
+            pyautogui.moveRel(-1, -1)
+            pyautogui.press("shift")
+            return "Turned on display and woke up workstation."
+        return "Turn on command only supported on Windows."
+    elif act in ("sleep", "sleep_display", "turn_off_screen", "screen_off", "display_off"):
+        if sys.platform == "win32":
+            import ctypes
+            # Send monitor power OFF / standby message
+            ctypes.windll.user32.SendMessageW(0xFFFF, 0x0112, 0xF170, 2)
+            return "Turned off display into sleep mode. Jarvis remains listening."
+        return "Sleep display command only supported on Windows."
+    elif act == "lock":
         if sys.platform == "win32":
             subprocess.Popen(["rundll32.exe", "user32.dll,LockWorkStation"])
             return "Locked workstation."
@@ -892,7 +910,7 @@ GROQ_TOOL_DECLARATIONS = [
                 "properties": {
                     "action": {
                         "type": "string",
-                        "description": "One of: 'lock', 'minimize_all', 'mute', 'unmute', 'toggle_mute'."
+                        "description": "One of: 'turn_on', 'sleep', 'lock', 'minimize_all', 'mute', 'unmute', 'toggle_mute'."
                     }
                 },
                 "required": ["action"]
