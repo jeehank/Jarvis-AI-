@@ -1,11 +1,12 @@
 """
 jarvis_agent.py
-Main voice agent loop. Listens for "Jarvis", runs fast-path commands
-or falls back to Gemini for complex tasks.
+Main voice agent loop for JARVIS.
+Uses Groq for ultra-fast AI reasoning and tool execution, ElevenLabs for voice output.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -15,14 +16,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
-from google import genai
-from google.genai import types
+from groq import Groq
 import numpy as np
 import sounddevice as sd
 import speech_recognition as sr
 from elevenlabs.client import ElevenLabs
 
-from jarvis_tools import JARVIS_TOOL_DECLARATIONS, TOOL_FUNCTION_MAP, ACCOUNT_URLS
+from jarvis_tools import GROQ_TOOL_DECLARATIONS, TOOL_FUNCTION_MAP, ACCOUNT_URLS
 
 # ── Setup ──────────────────────────────────────────────────────────
 
@@ -40,7 +40,7 @@ SYSTEM_PROMPT = (
     "You are JARVIS, a capable, polite AI assistant (like Tony Stark's JARVIS). "
     "You have tools to control the user's Windows PC: open apps/sites, send messages, "
     "play music, control volume, take screenshots, like posts, read the screen, etc. "
-    "Keep spoken responses concise (1-2 sentences). Address the user as 'sir'."
+    "Keep spoken responses concise (1-2 sentences maximum). Address the user as 'sir'."
 )
 
 # Contacts that map to Instagram DM threads
@@ -106,25 +106,28 @@ class Voice:
             threading.Thread(target=_play, daemon=True).start()
 
 
-# ── Brain (command routing + Gemini) ───────────────────────────────
+# ── Brain (command routing + Groq) ─────────────────────────────────
 
 class Brain:
-    """Routes commands: fast-path for common tasks, Gemini for everything else."""
+    """Routes commands: fast-path for common tasks, Groq for complex requests."""
 
     def __init__(self, voice: Voice):
         self.voice   = voice
         self.client  = None
-        self.history: List[types.Content] = []
+        self.model   = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip()
+        self.history: List[Dict[str, Any]] = [
+            {"role": "system", "content": SYSTEM_PROMPT}
+        ]
 
-        api_key = os.getenv("GEMINI_API_KEY", "").strip()
+        api_key = os.getenv("GROQ_API_KEY", "").strip()
         if api_key:
             try:
-                self.client = genai.Client(api_key=api_key)
-                log.info("Gemini client ready.")
+                self.client = Groq(api_key=api_key)
+                log.info("Groq client ready (model: %s).", self.model)
             except Exception as e:
-                log.error("Gemini init failed: %s", e)
+                log.error("Groq init failed: %s", e)
         else:
-            log.warning("GEMINI_API_KEY not set.")
+            log.warning("GROQ_API_KEY not set.")
 
     # ── public entry point ──
 
@@ -137,7 +140,7 @@ class Brain:
         if self._try_fast_path(text):
             return
 
-        self._ask_gemini(text)
+        self._ask_groq(text)
 
     # ── fast-path router ──
 
@@ -254,7 +257,7 @@ class Brain:
         if "screen" not in t or not any(w in t for w in triggers):
             return False
 
-        self.voice.speak("Looking at your screen now, sir.")
+        self.voice.speak("Inspecting your screen now, sir.")
         result = TOOL_FUNCTION_MAP["see_and_analyze_screen"](t)
         print(f"  JARVIS: {result}")
         self.voice.speak(result)
@@ -349,10 +352,10 @@ class Brain:
         TOOL_FUNCTION_MAP["search_google"](query)
         return True
 
-    # ── Gemini fallback ──
+    # ── Groq LLM fallback ──
 
-    def _ask_gemini(self, user_text: str):
-        """Send to Gemini with tool access for complex requests."""
+    def _ask_groq(self, user_text: str):
+        """Send to Groq LLM with full tool access for reasoning and autonomous execution."""
         if not self.client:
             self.voice.speak("I'm ready for your command, sir.")
             return
@@ -360,66 +363,70 @@ class Brain:
         self.voice.speak("Working on that now, sir.")
 
         try:
-            tools = [
-                types.Tool(
-                    function_declarations=[
-                        types.FunctionDeclaration(
-                            name=d["name"],
-                            description=d["description"],
-                            parameters=d["parameters"],
-                        )
-                        for d in JARVIS_TOOL_DECLARATIONS
-                    ]
-                )
-            ]
+            self.history.append({"role": "user", "content": user_text})
 
-            self.history.append(
-                types.Content(role="user", parts=[types.Part.from_text(text=user_text)])
-            )
-
-            config = types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=self.history,
+                tools=GROQ_TOOL_DECLARATIONS,
+                tool_choice="auto",
                 temperature=0.6,
-                tools=tools,
             )
 
-            response = self.client.models.generate_content(
-                model="gemini-3.6-flash",
-                contents=self.history,
-                config=config,
-            )
+            msg = response.choices[0].message
 
-            # execute any tool calls the model requested
-            if response.function_calls:
-                result = ""
-                for call in response.function_calls:
-                    fn = call.name
-                    args = call.args or {}
-                    log.info("Tool call: %s(%s)", fn, args)
+            # Execute any tool calls requested by Groq
+            if msg.tool_calls:
+                self.history.append(msg)
+                last_result = ""
 
-                    if fn in TOOL_FUNCTION_MAP:
-                        result = TOOL_FUNCTION_MAP[fn](**args)
+                for tool_call in msg.tool_calls:
+                    fn_name = tool_call.function.name
+                    raw_args = tool_call.function.arguments or "{}"
+                    try:
+                        fn_args = json.loads(raw_args)
+                    except Exception:
+                        fn_args = {}
+
+                    log.info("Groq tool call: %s(%s)", fn_name, fn_args)
+
+                    if fn_name in TOOL_FUNCTION_MAP:
+                        tool_res = TOOL_FUNCTION_MAP[fn_name](**fn_args)
                     else:
-                        result = f"Tool {fn} completed."
+                        tool_res = f"Tool {fn_name} executed."
 
-                if response.candidates:
-                    self.history.append(response.candidates[0].content)
+                    last_result = tool_res
+                    self.history.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "name": fn_name,
+                        "content": str(tool_res),
+                    })
 
-                reply = f"Done, sir. {result}"
+                # Follow up with Groq to get a final conversational response
+                try:
+                    followup = self.client.chat.completions.create(
+                        model=self.model,
+                        messages=self.history,
+                        temperature=0.6,
+                    )
+                    reply = followup.choices[0].message.content or f"Done, sir. {last_result}"
+                except Exception:
+                    reply = f"Done, sir. {last_result}"
+
+                self.history.append({"role": "assistant", "content": reply})
                 print(f"  JARVIS: {reply}")
                 self.voice.speak(reply)
                 return
 
-            # plain text reply
-            reply = response.text or "Right away, sir."
-            if response.candidates:
-                self.history.append(response.candidates[0].content)
-
+            # Direct response without tool calls
+            reply = msg.content or "Right away, sir."
+            self.history.append({"role": "assistant", "content": reply})
             print(f"  JARVIS: {reply}")
             self.voice.speak(reply)
 
         except Exception as e:
-            log.error("Gemini error: %s", e)
+            log.error("Groq API error: %s", e)
             self.voice.speak("Task completed, sir.")
 
 
@@ -475,7 +482,7 @@ class Listener:
 def main():
     print()
     print("=" * 55)
-    print("  JARVIS  -  Voice Assistant")
+    print("  JARVIS  -  Voice Assistant (Powered by Groq)")
     print("=" * 55)
     print()
     print("  Commands you can try:")
