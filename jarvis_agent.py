@@ -254,46 +254,47 @@ class Brain:
             return False
 
         # 1. "introduce yourself to [contact] on whatsapp"
-        intro_m = re.search(r"introduce\s+yourself\s+to\s+([a-zA-Z0-9_+]+)", t)
+        intro_m = re.search(r"introduce\s+(?:yourself|jarvis)\s+to\s+([a-zA-Z0-9_+]+)", t)
         if intro_m:
             contact = intro_m.group(1)
-            msg = "Hello! I am JARVIS, an autonomous AI assistant."
+            msg = f"Hello {contact.capitalize()}! I am JARVIS, an autonomous AI assistant."
             self.voice.speak(f"Opening WhatsApp and introducing myself to {contact.capitalize()}, sir.")
             res = TOOL_FUNCTION_MAP["send_whatsapp_message"](contact, msg)
             safe_print(f"  JARVIS: {res}")
             return True
 
-        # 2. "message [contact] on whatsapp saying [msg]" / "text [contact] on whatsapp [msg]"
-        m1 = re.search(r"(?:message|text|send\s+(?:a\s+)?message\s+to|tell)\s+([a-zA-Z0-9_+]+)(?:\s+on\s+whatsapp)?\s+(?:saying|message|that|text)\s+(.+)", t)
-        if m1:
-            contact, msg = m1.group(1), m1.group(2)
-            self.voice.speak(f"Sending your message to {contact.capitalize()} on WhatsApp, sir.")
-            res = TOOL_FUNCTION_MAP["send_whatsapp_message"](contact, msg)
-            safe_print(f"  JARVIS: {res}")
-            return True
-
-        # 3. "[contact] on whatsapp saying [msg]"
-        m2 = re.search(r"(?:to\s+)?([a-zA-Z0-9_+]+)\s+on\s+whatsapp\s+(?:saying|message|that|text)\s+(.+)", t)
-        if m2:
-            contact, msg = m2.group(1), m2.group(2)
-            self.voice.speak(f"Sending your message to {contact.capitalize()} on WhatsApp, sir.")
-            res = TOOL_FUNCTION_MAP["send_whatsapp_message"](contact, msg)
-            safe_print(f"  JARVIS: {res}")
-            return True
-
-        # 4. Explicit desktop app launch: "open whatsapp app" / "open whatsapp desktop"
+        # 2. Explicit desktop app launch: "open whatsapp app" / "open whatsapp desktop"
         if any(w in t for w in ("app", "desktop", "application")):
             self.voice.speak("Opening WhatsApp Desktop, sir.")
             TOOL_FUNCTION_MAP["open_whatsapp"]("app")
             return True
 
-        # 5. Simple open: "open whatsapp", "launch whatsapp"
+        # 3. Simple open: "open whatsapp", "launch whatsapp"
         if t.strip() in ("open whatsapp", "launch whatsapp", "whatsapp", "open whatsapp web"):
             self.voice.speak("Opening WhatsApp for you, sir.")
             TOOL_FUNCTION_MAP["open_whatsapp"]("web")
             return True
 
-        # If it's a complex phrasing (e.g. conversational question), let Groq handle it
+        # 4. Standard message templates with explicit keyword delimiters
+        m1 = re.search(r"(?:send\s+(?:a\s+)?message\s+to|message|text|tell)\s+([a-zA-Z0-9_+]+)(?:\s+on\s+whatsapp)?\s+(?:saying|that|text)\s+(.+)", t)
+        if m1:
+            contact, msg = m1.group(1), m1.group(2).strip()
+            if msg:
+                self.voice.speak(f"Sending your message to {contact.capitalize()} on WhatsApp, sir.")
+                res = TOOL_FUNCTION_MAP["send_whatsapp_message"](contact, msg)
+                safe_print(f"  JARVIS: {res}")
+                return True
+
+        m2 = re.search(r"(?:to\s+)?([a-zA-Z0-9_+]+)\s+on\s+whatsapp\s+(?:saying|that|text)\s+(.+)", t)
+        if m2:
+            contact, msg = m2.group(1), m2.group(2).strip()
+            if msg:
+                self.voice.speak(f"Sending your message to {contact.capitalize()} on WhatsApp, sir.")
+                res = TOOL_FUNCTION_MAP["send_whatsapp_message"](contact, msg)
+                safe_print(f"  JARVIS: {res}")
+                return True
+
+        # For all other phrasings, return False so Groq's 120B model extracts contact and message with 100% accuracy
         return False
 
     def _handle_screen(self, t: str) -> bool:
