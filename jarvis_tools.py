@@ -19,8 +19,13 @@ from pathlib import Path
 from typing import Optional
 
 from PIL import Image
+from dotenv import load_dotenv
 import pyautogui
 from pycaw.pycaw import AudioUtilities
+
+# Load .env
+_ENV_PATH = Path(__file__).resolve().parent / ".env"
+load_dotenv(_ENV_PATH)
 
 # Configure PyAutoGUI
 pyautogui.FAILSAFE = False
