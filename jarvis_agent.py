@@ -150,14 +150,14 @@ class JarvisBrain:
             return True
 
         # Like Post: "like this post", "like this", "like reel", "like post"
-        if "like" in t_clean and ("post" in t_clean or "this" in t_clean or "reel" in t_clean or "photo" in t_clean or "video" in t_clean):
+        if "like" in t_clean and ("post" in t_clean or "this" in t_clean or "reel" in t_clean or "photo" in t_clean or "video" in t_clean or "picture" in t_clean):
             # Phase 1: Pre-Ack
-            self.voice.speak("Liking that for you now, sir.")
-            # Phase 2: Action
-            TOOL_FUNCTION_MAP["like_current_post"]("instagram")
+            self.voice.speak("Locating the post on your screen and liking it now, sir.")
+            # Phase 2: Action with Vision & Mouse Movement
+            res = TOOL_FUNCTION_MAP["like_current_post"]("instagram")
             # Phase 3: Post-Ack
-            print("JARVIS: Post has been liked, sir.\n")
-            self.voice.speak("Done, sir. Post liked.")
+            print(f"JARVIS: {res}\n")
+            self.voice.speak("Done, sir. Post located and liked.")
             return True
 
         # Play Music: "play [song]"
@@ -170,36 +170,41 @@ class JarvisBrain:
                 TOOL_FUNCTION_MAP["play_youtube_video"](song_query)
                 return True
 
-        # WhatsApp Message: "whatsapp [contact] [message]" or "send message on whatsapp to [contact] saying [message]"
+        # Instagram Direct with Contacts (Sohani, Abhirup, Sampriti, or username)
+        if "instagram" in t_clean and any(c in t_clean for c in ("sohani", "abhirup", "sampriti", "message", "dm", "send", "chat")):
+            contact = ""
+            for c in ("sohani", "abhirup", "sampriti"):
+                if c in t_clean:
+                    contact = c
+                    break
+            if not contact:
+                m_user = re.search(r"(?:to\s+|dm\s+)?@?([a-zA-Z0-9_.]+)", t_clean)
+                contact = m_user.group(1) if m_user else ""
+
+            msg_match = re.search(r"(?:saying|message|that|text)\s+(.+)", t_clean)
+            message_text = msg_match.group(1).strip() if msg_match else "hey im jarvis"
+
+            self.voice.speak(f"Opening Instagram chat with {contact.capitalize() if contact else 'contact'} and sending your message, sir.")
+            res = TOOL_FUNCTION_MAP["send_instagram_dm_message"](contact, message_text)
+            print(f"JARVIS: {res}\n")
+            return True
+
+        # WhatsApp: App vs Web vs Send Message
         if "whatsapp" in t_clean:
-            self.voice.speak("Opening WhatsApp for you now, sir.")
+            if "app" in t_clean or "desktop" in t_clean or "application" in t_clean:
+                self.voice.speak("Opening WhatsApp Desktop Application for you now, sir.")
+                TOOL_FUNCTION_MAP["open_whatsapp"]("app")
+                return True
             match = re.search(r"(?:to\s+)?([a-zA-Z0-9_+]+)\s+(?:saying|message|that)\s+(.+)", t_clean)
             if match:
                 contact, msg = match.group(1), match.group(2)
-                res = TOOL_FUNCTION_MAP["send_whatsapp_message"](contact, msg)
-                self.voice.speak("WhatsApp chat ready with your message, sir.")
+                self.voice.speak(f"Opening WhatsApp chat for {contact} with your message, sir.")
+                TOOL_FUNCTION_MAP["send_whatsapp_message"](contact, msg)
+                return True
             else:
-                TOOL_FUNCTION_MAP["open_website"]("whatsapp")
-            return True
-
-        # Email / Gmail: "email [person] [message]" or "send email to [person] saying [body]"
-        if "email" in t_clean or "gmail" in t_clean:
-            self.voice.speak("Opening email draft for you now, sir.")
-            match = re.search(r"(?:to\s+)?([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)?\s*(?:about\s+([^,]+))?\s*(?:saying|body)?\s*(.+)?", t_clean)
-            rec = match.group(1) if match and match.group(1) else ""
-            sub = match.group(2) if match and match.group(2) else "Note"
-            body = match.group(3) if match and match.group(3) else ""
-            TOOL_FUNCTION_MAP["send_email_compose"](rec, sub, body)
-            self.voice.speak("Email compose window is open, sir.")
-            return True
-
-        # Instagram DM: "message [user] on instagram"
-        if "instagram" in t_clean and ("message" in t_clean or "dm" in t_clean):
-            self.voice.speak("Opening Instagram Direct for you, sir.")
-            match = re.search(r"(?:to\s+|dm\s+)?@?([a-zA-Z0-9_.]+)", t_clean)
-            user = match.group(1) if match else ""
-            TOOL_FUNCTION_MAP["send_instagram_dm"](user)
-            return True
+                self.voice.speak("Opening WhatsApp for you now, sir.")
+                TOOL_FUNCTION_MAP["open_whatsapp"]("web")
+                return True
 
         # Screen Vision: "what is on my screen", "look at my screen", "read my screen"
         if "screen" in t_clean and ("look" in t_clean or "what" in t_clean or "read" in t_clean or "see" in t_clean or "analyze" in t_clean):
