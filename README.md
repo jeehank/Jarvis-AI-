@@ -76,18 +76,6 @@ You can also type commands directly in the terminal.
 
 4. **Voice output** — Responses are spoken aloud using ElevenLabs with a volume boost for clarity.
 
-## Instagram DM Contacts
-
-Jarvis recognizes these nicknames for Instagram DMs:
-
-| Say this | Opens chat with |
-| --- | --- |
-| Sohani, Sohu, Soha | Sohani's DM thread |
-| Abhirup, Abhiroop, Abhi | Abhirup's DM thread |
-| Sampriti, Sam, Samp | Sampriti's DM thread |
-
-Add more contacts by editing `INSTAGRAM_CONTACT_URLS` in `jarvis_tools.py`.
-
 ## Troubleshooting
 
 - **Mic not working**: Check that your default mic is set correctly in Windows Sound Settings.
