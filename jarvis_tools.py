@@ -595,7 +595,7 @@ def type_keyboard_text(text: str, press_enter: bool = True) -> str:
 
 
 def system_action(action: str) -> str:
-    """Performs system actions: 'turn_on', 'sleep', 'lock', 'minimize_all', 'mute', 'unmute', 'toggle_mute'."""
+    """Performs system actions: 'turn_on', 'sleep', 'lock', 'minimize_all', 'mute', 'unmute', 'toggle_mute', 'shutdown', 'restart', 'abort_shutdown'."""
     act = action.lower().strip()
     if act in ("turn_on", "wake", "wake_up", "screen_on", "turn_on_screen", "turn_on_display", "display_on"):
         if sys.platform == "win32":
@@ -633,7 +633,226 @@ def system_action(action: str) -> str:
                 return "Muted audio." if not current_mute else "Unmuted audio."
             except Exception as e:
                 return f"Failed to toggle mute: {e}"
+    elif act in ("shutdown", "power_off", "turn_off_pc", "turn_off_computer"):
+        return shutdown_computer(delay_seconds=5)
+    elif act in ("restart", "reboot", "restart_pc", "restart_computer"):
+        return restart_computer(delay_seconds=5)
+    elif act in ("abort_shutdown", "cancel_shutdown", "stop_shutdown"):
+        return abort_shutdown()
     return f"Action '{action}' is not supported."
+
+
+def close_browser_tab(tab_name_or_keyword: str) -> str:
+    """Specifically closes a browser tab by title or keyword across Chrome, Edge, Brave, Firefox, Opera, etc."""
+    kw = tab_name_or_keyword.lower().strip()
+    if not kw:
+        return "Please specify which tab to close."
+
+    try:
+        import ctypes
+        import comtypes
+        import comtypes.client
+
+        comtypes.CoInitialize()
+        try:
+            from comtypes.gen import UIAutomationClient
+        except Exception:
+            comtypes.client.GetModule("UIAutomationCore.dll")
+            from comtypes.gen import UIAutomationClient
+
+        user32 = ctypes.windll.user32
+        hDesk = user32.OpenInputDesktop(0, False, 0x01FF)
+
+        hwnds = []
+        def enum_desk_proc(hwnd, lParam):
+            if user32.IsWindowVisible(hwnd):
+                length = user32.GetWindowTextLengthW(hwnd)
+                if length > 0:
+                    buff = ctypes.create_unicode_buffer(length + 1)
+                    user32.GetWindowTextW(hwnd, buff, length + 1)
+                    title = buff.value
+                    hwnds.append((hwnd, title))
+            return True
+
+        DESKTOPENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.c_void_p)
+        cb = DESKTOPENUMPROC(enum_desk_proc)
+        user32.EnumDesktopWindows(hDesk, cb, 0)
+
+        uia = comtypes.client.CreateObject(UIAutomationClient.CUIAutomation)
+        tab_cond = uia.CreatePropertyCondition(UIAutomationClient.UIA_ControlTypePropertyId, UIAutomationClient.UIA_TabItemControlTypeId)
+        btn_cond = uia.CreatePropertyCondition(UIAutomationClient.UIA_ControlTypePropertyId, UIAutomationClient.UIA_ButtonControlTypeId)
+
+        for hwnd, win_title in hwnds:
+            if any(b in win_title.lower() for b in ["chrome", "edge", "brave", "firefox", "opera", "browser"]):
+                try:
+                    win_elem = uia.ElementFromHandle(hwnd)
+                    tabs = win_elem.FindAll(UIAutomationClient.TreeScope_Descendants, tab_cond)
+                    for i in range(tabs.Length):
+                        t = tabs.GetElement(i)
+                        t_name = t.CurrentName or ""
+                        if kw in t_name.lower():
+                            # 1. Try finding and invoking the Close button inside this tab item
+                            buttons = t.FindAll(UIAutomationClient.TreeScope_Descendants, btn_cond)
+                            for b_idx in range(buttons.Length):
+                                btn = buttons.GetElement(b_idx)
+                                b_name = (btn.CurrentName or "").lower()
+                                if "close" in b_name or b_name == "" or "tab" in b_name:
+                                    try:
+                                        pat = btn.GetCurrentPattern(UIAutomationClient.UIA_InvokePatternId)
+                                        if pat:
+                                            inv = pat.QueryInterface(UIAutomationClient.IUIAutomationInvokePattern)
+                                            inv.Invoke()
+                                            return f"Closed the '{tab_name_or_keyword}' tab."
+                                    except Exception:
+                                        pass
+
+                            # 2. Fallback: Select tab, bring window to front, and send Ctrl+W
+                            try:
+                                sel_pat = t.GetCurrentPattern(UIAutomationClient.UIA_SelectionItemPatternId)
+                                if sel_pat:
+                                    sel = sel_pat.QueryInterface(UIAutomationClient.IUIAutomationSelectionItemPattern)
+                                    sel.Select()
+                                    time.sleep(0.1)
+                                    user32.SetForegroundWindow(hwnd)
+                                    time.sleep(0.1)
+                                    pyautogui.hotkey("ctrl", "w")
+                                    return f"Closed the '{tab_name_or_keyword}' tab."
+                            except Exception:
+                                pass
+                except Exception:
+                    continue
+
+        # If not found inside tabs, check if an entire window title matches
+        for hwnd, win_title in hwnds:
+            if kw in win_title.lower() and any(b in win_title.lower() for b in ["chrome", "edge", "brave", "firefox", "opera"]):
+                try:
+                    user32.SetForegroundWindow(hwnd)
+                    time.sleep(0.1)
+                    pyautogui.hotkey("ctrl", "w")
+                    return f"Closed '{tab_name_or_keyword}' tab/window."
+                except Exception:
+                    pass
+
+        return f"Could not find an open browser tab matching '{tab_name_or_keyword}'."
+    except Exception as e:
+        log.error("close_browser_tab error: %s", e)
+        return f"Error closing tab: {e}"
+
+
+def shutdown_computer(delay_seconds: int = 5, force: bool = False) -> str:
+    """Safely shuts down the Windows computer."""
+    if sys.platform == "win32":
+        f_flag = "/f" if force else ""
+        subprocess.Popen(f"shutdown /s {f_flag} /t {delay_seconds} /c \"JARVIS: Shutting down system.\"", shell=True)
+        return f"System shutdown initiated. Computer will power down in {delay_seconds} seconds."
+    return "Shutdown is only supported on Windows."
+
+
+def restart_computer(delay_seconds: int = 5, force: bool = False) -> str:
+    """Safely restarts the Windows computer."""
+    if sys.platform == "win32":
+        f_flag = "/f" if force else ""
+        subprocess.Popen(f"shutdown /r {f_flag} /t {delay_seconds} /c \"JARVIS: Restarting system.\"", shell=True)
+        return f"System restart initiated. Computer will reboot in {delay_seconds} seconds."
+    return "Restart is only supported on Windows."
+
+
+def abort_shutdown() -> str:
+    """Aborts any scheduled system shutdown or restart."""
+    if sys.platform == "win32":
+        subprocess.Popen("shutdown /a", shell=True)
+        return "Scheduled shutdown or restart has been cancelled."
+    return "Abort shutdown is only supported on Windows."
+
+
+def get_weather(location: str = "Kolkata, West Bengal, India") -> str:
+    """Fetches a real-time weather report and forecast for Kolkata, West Bengal, India (or specified location)."""
+    WMO_CODES = {
+        0: "Clear sky", 1: "Mainly clear", 2: "Partly cloudy", 3: "Overcast",
+        45: "Foggy", 48: "Depositing rime fog",
+        51: "Light drizzle", 53: "Moderate drizzle", 55: "Dense drizzle",
+        61: "Slight rain", 63: "Moderate rain", 65: "Heavy rain",
+        71: "Slight snowfall", 73: "Moderate snowfall", 75: "Heavy snowfall",
+        80: "Slight rain showers", 81: "Moderate rain showers", 82: "Violent rain showers",
+        95: "Thunderstorm", 96: "Thunderstorm with slight hail", 99: "Thunderstorm with heavy hail"
+    }
+
+    lat, lon, place_name = 22.5726, 88.3639, "Kolkata, West Bengal"
+    loc_clean = location.strip()
+    if loc_clean and "kolkata" not in loc_clean.lower():
+        try:
+            geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={urllib.parse.quote(loc_clean)}&count=1&language=en&format=json"
+            r = requests.get(geo_url, timeout=3.0).json()
+            if r.get("results"):
+                res = r["results"][0]
+                lat, lon = res["latitude"], res["longitude"]
+                place_name = f"{res.get('name')}, {res.get('country')}"
+        except Exception:
+            pass
+
+    try:
+        url = (
+            f"https://api.open-meteo.com/v1/forecast?"
+            f"latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min&timezone=auto"
+        )
+        r = requests.get(url, timeout=4.0).json()
+        curr = r["current"]
+        temp = curr["temperature_2m"]
+        feels_like = curr["apparent_temperature"]
+        humidity = curr["relative_humidity_2m"]
+        wind = curr["wind_speed_10m"]
+        w_code = curr.get("weather_code", 0)
+        cond = WMO_CODES.get(w_code, "Clear")
+        daily = r.get("daily", {})
+        max_t = daily.get("temperature_2m_max", [temp])[0]
+        min_t = daily.get("temperature_2m_min", [temp])[0]
+
+        return (
+            f"Weather report for {place_name}: It is currently {cond} with a temperature of {temp}°C "
+            f"(feels like {feels_like}°C), {humidity}% humidity, and wind speeds of {wind} km/h. "
+            f"Today's high is {max_t}°C and low is {min_t}°C."
+        )
+    except Exception as e:
+        log.error("get_weather error: %s", e)
+        return f"Unable to fetch weather data right now: {e}"
+
+
+def get_time(location: str = "Kolkata, West Bengal, India") -> str:
+    """Returns current time (12-hour format with AM/PM) and date in Indian Standard Time (IST, UTC+5:30) for Kolkata."""
+    ist = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+    now = datetime.datetime.now(ist)
+    time_str = now.strftime("%I:%M %p").lstrip("0")
+    date_str = now.strftime("%A, %B %d, %Y")
+    return f"It is currently {time_str} on {date_str} in {location}."
+
+
+def show_google_maps_route(destination: str, origin: str = "Kolkata, West Bengal") -> str:
+    """Opens Google Maps with full directions pre-filled from origin to destination."""
+    dest_clean = destination.strip()
+    orig_clean = origin.strip()
+
+    if not orig_clean or orig_clean.lower() in ("my location", "my place", "here", "current location", "from my location", "from my place"):
+        orig_clean = "Kolkata, West Bengal"
+
+    orig_enc = urllib.parse.quote_plus(orig_clean)
+    dest_enc = urllib.parse.quote_plus(dest_clean)
+
+    maps_url = f"https://www.google.com/maps/dir/{orig_enc}/{dest_enc}"
+    webbrowser.open(maps_url)
+    return f"Opened Google Maps route from {orig_clean} to {dest_clean}."
+
+
+def interruptible_sleep(seconds: float, interrupt_event: Optional[threading.Event] = None) -> bool:
+    """Sleeps for the given duration in small intervals. Returns False if interrupted, True if completed."""
+    if interrupt_event is None:
+        time.sleep(seconds)
+        return True
+    end_time = time.time() + seconds
+    while time.time() < end_time:
+        if interrupt_event.is_set():
+            return False
+        time.sleep(min(0.05, max(0.0, end_time - time.time())))
+    return not interrupt_event.is_set()
 
 
 # ── Groq / OpenAI Standard Tool Declarations ──────────────────────────
@@ -659,14 +878,48 @@ GROQ_TOOL_DECLARATIONS = [
     {
         "type": "function",
         "function": {
-            "name": "open_application",
-            "description": "Opens a desktop application on the computer like Spotify, Chrome, Cursor, VS Code, Notepad, Calculator, Task Manager, etc.",
+            "name": "close_browser_tab",
+            "description": "Closes a specific browser tab by title or website name (e.g. 'youtube', 'spotify', 'instagram', 'github') no matter which tab is currently active.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "tab_name_or_keyword": {
+                        "type": "string",
+                        "description": "The name or keyword of the tab to close, e.g. 'youtube', 'spotify', 'instagram'."
+                    }
+                },
+                "required": ["tab_name_or_keyword"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_and_launch_app",
+            "description": "Searches for an application using the Windows taskbar search bar and opens the closest/best matching result.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "app_name": {
                         "type": "string",
-                        "description": "The name of the application to open, e.g. 'Spotify', 'Cursor', 'Notepad', 'Chrome'."
+                        "description": "The application to search and launch, e.g. 'roblox', 'spotify', 'calculator', 'notepad'."
+                    }
+                },
+                "required": ["app_name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "open_application",
+            "description": "Opens a desktop application on the computer like Spotify, Chrome, Cursor, VS Code, Notepad, Calculator, Roblox, Task Manager, etc.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "app_name": {
+                        "type": "string",
+                        "description": "The name of the application to open, e.g. 'Spotify', 'Roblox', 'Cursor', 'Notepad', 'Chrome'."
                     }
                 },
                 "required": ["app_name"]
@@ -704,6 +957,110 @@ GROQ_TOOL_DECLARATIONS = [
                     }
                 },
                 "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_weather",
+            "description": "Gets the real-time weather report, temperature, humidity, wind, and forecast for Kolkata, West Bengal, India (or specified location).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "location": {
+                        "type": "string",
+                        "description": "The city or location name (default: 'Kolkata, West Bengal, India')."
+                    }
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_time",
+            "description": "Gets the current time (12-hour format) and full date in Indian Standard Time (IST) for Kolkata, West Bengal, India.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "location": {
+                        "type": "string",
+                        "description": "The city or region name (default: 'Kolkata, West Bengal, India')."
+                    }
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "show_google_maps_route",
+            "description": "Opens Google Maps with full turn-by-turn route directions pre-filled from the user's location (Kolkata) to a destination.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "destination": {
+                        "type": "string",
+                        "description": "The destination city, place, or landmark, e.g. 'Durgapur', 'Howrah Station', 'Airport'."
+                    },
+                    "origin": {
+                        "type": "string",
+                        "description": "The starting point (default: 'Kolkata, West Bengal')."
+                    }
+                },
+                "required": ["destination"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "shutdown_computer",
+            "description": "Safely shuts down the user's Windows computer.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "delay_seconds": {
+                        "type": "integer",
+                        "description": "Seconds before shutdown (default 5)."
+                    },
+                    "force": {
+                        "type": "boolean",
+                        "description": "Whether to force close applications."
+                    }
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "restart_computer",
+            "description": "Safely restarts / reboots the user's Windows computer.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "delay_seconds": {
+                        "type": "integer",
+                        "description": "Seconds before reboot (default 5)."
+                    },
+                    "force": {
+                        "type": "boolean",
+                        "description": "Whether to force close applications."
+                    }
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "abort_shutdown",
+            "description": "Aborts any pending scheduled shutdown or restart.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
             }
         }
     },
@@ -929,13 +1286,13 @@ GROQ_TOOL_DECLARATIONS = [
         "type": "function",
         "function": {
             "name": "system_action",
-            "description": "Performs system level operations like locking the computer, minimizing all windows, or muting sound.",
+            "description": "Performs system level operations like shutdown, restart, locking the computer, minimizing all windows, or muting sound.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "description": "One of: 'turn_on', 'sleep', 'lock', 'minimize_all', 'mute', 'unmute', 'toggle_mute'."
+                        "description": "One of: 'turn_on', 'sleep', 'lock', 'minimize_all', 'mute', 'unmute', 'toggle_mute', 'shutdown', 'restart', 'abort_shutdown'."
                     }
                 },
                 "required": ["action"]
@@ -949,10 +1306,18 @@ JARVIS_TOOL_DECLARATIONS = GROQ_TOOL_DECLARATIONS
 
 TOOL_FUNCTION_MAP = {
     "open_website": open_website,
+    "close_browser_tab": close_browser_tab,
+    "search_and_launch_app": search_and_launch_app,
     "open_application": open_application,
     "open_folder": open_folder,
     "open_whatsapp": open_whatsapp,
     "play_youtube_video": play_youtube_video,
+    "get_weather": get_weather,
+    "get_time": get_time,
+    "show_google_maps_route": show_google_maps_route,
+    "shutdown_computer": shutdown_computer,
+    "restart_computer": restart_computer,
+    "abort_shutdown": abort_shutdown,
     "like_current_post": like_current_post,
     "send_whatsapp_message": send_whatsapp_message,
     "send_email_compose": send_email_compose,
