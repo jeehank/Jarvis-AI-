@@ -6,6 +6,7 @@ Exposes Python functions and tool declarations for Groq LLM tool calling.
 
 from __future__ import annotations
 
+import datetime
 import io
 import logging
 import os
@@ -13,6 +14,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -20,6 +22,7 @@ import webbrowser
 from pathlib import Path
 from typing import Optional
 
+import requests
 from PIL import Image
 from dotenv import load_dotenv
 import pyautogui
