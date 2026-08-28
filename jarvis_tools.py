@@ -95,8 +95,34 @@ def open_website(url_or_service: str) -> str:
     return f"Opened {target} at {url}."
 
 
+def search_and_launch_app(app_name: str) -> str:
+    """Searches for an application using the Windows taskbar search bar and opens the closest result."""
+    target = app_name.strip()
+    if not target:
+        return "Please specify an application name to search."
+
+    try:
+        # 1. Trigger Windows Search via Win+S
+        pyautogui.hotkey("win", "s")
+        time.sleep(0.4)
+
+        # 2. Type the target application name
+        pyperclip.copy(target)
+        pyautogui.hotkey("ctrl", "v")
+
+        # 3. Give Windows search indexing time to resolve the closest result
+        time.sleep(0.9)
+
+        # 4. Press Enter to launch the best match
+        pyautogui.press("enter")
+        return f"Searched for '{target}' on taskbar search and opened the closest match."
+    except Exception as e:
+        log.error("search_and_launch_app error: %s", e)
+        return f"Failed searching for '{target}' in search bar: {e}"
+
+
 def open_application(app_name: str) -> str:
-    """Open any desktop application like Spotify, Chrome, Cursor, VS Code, Notepad, Calculator, Discord, Explorer, Task Manager."""
+    """Open any desktop application like Spotify, Chrome, Cursor, VS Code, Notepad, Calculator, Roblox, Discord, Explorer, Task Manager."""
     name_clean = app_name.lower().strip()
 
     # 1. Check known aliases
@@ -118,13 +144,9 @@ def open_application(app_name: str) -> str:
         except Exception as e:
             log.warning("Failed executing %s: %s", found, e)
 
-    # 3. Windows 'start' shell command fallback
+    # 3. Windows taskbar search fallback (handles Roblox, Windows Store apps, Custom apps)
     if sys.platform == "win32":
-        try:
-            subprocess.Popen(["cmd.exe", "/c", "start", "", name_clean], shell=True)
-            return f"Attempted to start {app_name} via Windows shell."
-        except Exception as e:
-            return f"Failed to start {app_name}: {e}"
+        return search_and_launch_app(app_name)
 
     return f"Application '{app_name}' not found."
 
