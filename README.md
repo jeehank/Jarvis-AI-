@@ -14,14 +14,20 @@ To ensure Jarvis never cuts you off mid-sentence:
 3. **End** with **"... Over"**
 
 ### Examples:
+- *"Jarvis, close YouTube tab, over."*
+- *"Jarvis, open Roblox, over."*
+- *"Jarvis, what is the weather report, over."*
+- *"Jarvis, what time is it, over."*
+- *"Jarvis, show me the route from my location to Durgapur, over."*
+- *"Jarvis, shutdown computer, over."*
+- *"Jarvis, restart computer, over."*
 - *"Jarvis, turn on, over."*
 - *"Jarvis, go to sleep, over."*
 - *"Jarvis, text in the group saying are we meeting today, over."*
-- *"Jarvis, generate an appreciation message and send it to Abhirup on WhatsApp, over."*
 - *"Jarvis, play Let It Happen by Tame Impala, over."*
 - *"Jarvis, like this post, over."*
 - *"Jarvis, set system volume to 75%, over."*
-- *"Jarvis, open Instagram, over."*
+- **Emergency Halt**: Just say *"Jarvis stop"* at any moment to immediately abort the ongoing task and silence speech!
 
 ---
 
@@ -29,6 +35,12 @@ To ensure Jarvis never cuts you off mid-sentence:
 
 | Category | Examples |
 | --- | --- |
+| **Close Specific Tabs** | "Jarvis, close YouTube tab, over" / "Jarvis, close Spotify tab, over" *(specifically closes that tab via UIAutomation)* |
+| **Search Bar App Launch** | "Jarvis, open Roblox, over" / "Jarvis, open Calculator, over" *(searches taskbar search bar and opens closest match)* |
+| **Weather & Time (Kolkata)** | "Jarvis, what is the weather report, over" / "Jarvis, what time is it, over" *(live weather & IST time for Kolkata, West Bengal)* |
+| **Google Maps Routes** | "Jarvis, show me the route from my location to Durgapur, over" *(opens directions directly pre-filled)* |
+| **System Shutdown & Reboot** | "Jarvis, shutdown computer, over" / "Jarvis, restart computer, over" / "Jarvis, cancel shutdown, over" |
+| **Emergency Interruption** | "Jarvis stop" *(instantly silences audio and stops running tasks)* |
 | **Turn on / Wake up** | "Jarvis, turn on, over" / "Jarvis, wake up, over" *(powers display on and brings workstation active)* |
 | **Sleep display** | "Jarvis, go to sleep, over" / "Jarvis, sleep, over" *(puts monitors to sleep while remaining listening)* |
 | **Group WhatsApp messages** | "Jarvis, text in the group saying party tonight at 8, over" *(auto-targets `BLACKBIRD FLY`)* |
@@ -37,7 +49,6 @@ To ensure Jarvis never cuts you off mid-sentence:
 | **Instagram DMs** | "Jarvis, message Sohani on Instagram saying hey, over" |
 | **Play music** | "Jarvis, play Let It Happen by Tame Impala, over" |
 | **Like posts** | "Jarvis, like this post, over" (focuses and likes current social post/reel) |
-| **Open apps & sites** | "Jarvis, open Instagram, over" / "Jarvis, open Spotify, over" |
 | **Volume control** | "Jarvis, set volume to 70, over" / "Jarvis, mute, over" |
 | **Screen inspection** | "Jarvis, what's on my screen?, over" |
 | **Email** | "Jarvis, email john@example.com about the meeting, over" |
