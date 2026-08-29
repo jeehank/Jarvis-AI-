@@ -259,19 +259,33 @@ class Brain:
     # ── individual fast-path handlers ──
 
     def _handle_close_tab(self, t: str) -> bool:
-        """Handles requests to close a specific browser tab (e.g. 'close youtube tab', 'close spotify tab')."""
-        if "close" not in t or "tab" not in t:
+        """Handles requests to close a specific browser tab or the currently open tab."""
+        if "close" not in t or not any(k in t for k in ("tab", "tabs", "browser", "page", "window", "chrome", "edge", "youtube", "instagram", "spotify", "discord", "whatsapp", "gmail", "github")):
             return False
 
-        # Extract tab name / query
-        target = re.sub(r"^(?:please\s+)?close\s+(?:the\s+)?", "", t, flags=re.IGNORECASE)
-        target = re.sub(r"\s+tab(?:s)?\s*$", "", target, flags=re.IGNORECASE)
-        target = re.sub(r"^tab\s+(?:for\s+)?", "", target, flags=re.IGNORECASE).strip()
+        target = "current"
+        has_specific_service = False
+        for s in ("youtube", "instagram", "spotify", "gmail", "github", "discord", "whatsapp", "twitter", "chatgpt", "claude", "netflix", "reddit", "linkedin", "facebook", "amazon", "notion", "google", "teams", "roblox"):
+            if re.search(rf"\b{s}\b", t):
+                target = s
+                has_specific_service = True
+                break
 
-        if not target:
-            target = "current"
+        if not has_specific_service:
+            cleaned = re.sub(r"^(?:please\s+)?close\s+(?:the\s+)?", "", t, flags=re.IGNORECASE)
+            cleaned = re.sub(r"\b(on|in)\s+(?:my\s+)?(chrome|edge|brave|firefox|opera|browser)\b", "", cleaned, flags=re.IGNORECASE)
+            cleaned = re.sub(r"\b(tab|tabs|that|i have open|have open|open right now|right now|right|currently|for me|my|the|active|current|this)\b", "", cleaned, flags=re.IGNORECASE)
+            cleaned = cleaned.strip(" ,:.-")
+            if cleaned and cleaned not in ("current", "this", "active", "open", "here", "it"):
+                target = cleaned
+            else:
+                target = "current"
 
-        self.voice.speak(f"Closing the {target} tab, sir.")
+        if target == "current":
+            self.voice.speak("Closing the current tab, sir.")
+        else:
+            self.voice.speak(f"Closing the {target.title()} tab, sir.")
+
         res = TOOL_FUNCTION_MAP["close_browser_tab"](target)
         safe_print(f"  JARVIS: {res}")
         return True

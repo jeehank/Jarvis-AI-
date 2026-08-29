@@ -642,23 +642,34 @@ def system_action(action: str) -> str:
     return f"Action '{action}' is not supported."
 
 
-def close_browser_tab(tab_name_or_keyword: str) -> str:
-    """Specifically closes a browser tab by title or keyword across Chrome, Edge, Brave, Firefox, Opera, etc."""
-    kw = tab_name_or_keyword.lower().strip()
-    if not kw:
-        return "Please specify which tab to close."
+KNOWN_TAB_SERVICES = (
+    "youtube", "instagram", "spotify", "gmail", "github", "discord",
+    "whatsapp", "twitter", "chatgpt", "claude", "netflix", "reddit",
+    "linkedin", "facebook", "amazon", "notion", "google", "teams", "roblox"
+)
+
+
+def close_browser_tab(tab_name_or_keyword: str = "current") -> str:
+    """Specifically closes a browser tab by title or keyword across Chrome, Edge, Brave, Firefox, Opera, etc., or closes current active tab."""
+    raw = (tab_name_or_keyword or "").lower().strip()
+
+    # 1. Determine if the user intends to close the current active tab
+    current_tab_triggers = (
+        "current", "this", "this tab", "active", "active tab", "tab i have open",
+        "tab that is open", "i have open", "open right now", "open tab", "the tab",
+        "current tab", "here", "right now", "it"
+    )
+
+    is_current_tab = False
+    if not raw or raw in current_tab_triggers:
+        is_current_tab = True
+    elif not any(re.search(rf"\b{s}\b", raw) for s in KNOWN_TAB_SERVICES) and any(trig in raw for trig in current_tab_triggers):
+        is_current_tab = True
 
     try:
         import ctypes
         import comtypes
         import comtypes.client
-
-        comtypes.CoInitialize()
-        try:
-            from comtypes.gen import UIAutomationClient
-        except Exception:
-            comtypes.client.GetModule("UIAutomationCore.dll")
-            from comtypes.gen import UIAutomationClient
 
         user32 = ctypes.windll.user32
         hDesk = user32.OpenInputDesktop(0, False, 0x01FF)
@@ -678,6 +689,53 @@ def close_browser_tab(tab_name_or_keyword: str) -> str:
         cb = DESKTOPENUMPROC(enum_desk_proc)
         user32.EnumDesktopWindows(hDesk, cb, 0)
 
+        # Fast-path for current / active tab
+        if is_current_tab:
+            fg_hwnd = user32.GetForegroundWindow()
+            fg_len = user32.GetWindowTextLengthW(fg_hwnd)
+            fg_title = ""
+            if fg_len > 0:
+                buff = ctypes.create_unicode_buffer(fg_len + 1)
+                user32.GetWindowTextW(fg_hwnd, buff, fg_len + 1)
+                fg_title = buff.value
+
+            if any(b in fg_title.lower() for b in ["chrome", "edge", "brave", "firefox", "opera"]):
+                pyautogui.hotkey("ctrl", "w")
+                return f"Closed the current active tab."
+
+            for hwnd, title in hwnds:
+                if any(b in title.lower() for b in ["chrome", "edge", "brave", "firefox", "opera"]):
+                    user32.ShowWindow(hwnd, 9)
+                    user32.SetForegroundWindow(hwnd)
+                    time.sleep(0.15)
+                    pyautogui.hotkey("ctrl", "w")
+                    return f"Closed the current active tab in {title}."
+
+            pyautogui.hotkey("ctrl", "w")
+            return "Closed the active tab."
+
+        # Extract clean keyword from raw phrase
+        clean_kw = raw
+        for s in KNOWN_TAB_SERVICES:
+            if re.search(rf"\b{s}\b", raw):
+                clean_kw = s
+                break
+        else:
+            clean_kw = re.sub(r"^(?:please\s+)?close\s+(?:the\s+)?", "", clean_kw, flags=re.IGNORECASE)
+            clean_kw = re.sub(r"\b(on|in)\s+(?:my\s+)?(chrome|edge|brave|firefox|opera|browser)\b", "", clean_kw, flags=re.IGNORECASE)
+            clean_kw = re.sub(r"\b(tab|tabs|that|i have open|have open|open right now|right now|right|currently|for me|my|the|active|current|this)\b", "", clean_kw, flags=re.IGNORECASE)
+            clean_kw = clean_kw.strip(" ,:.-")
+
+        if not clean_kw:
+            clean_kw = raw
+
+        comtypes.CoInitialize()
+        try:
+            from comtypes.gen import UIAutomationClient
+        except Exception:
+            comtypes.client.GetModule("UIAutomationCore.dll")
+            from comtypes.gen import UIAutomationClient
+
         uia = comtypes.client.CreateObject(UIAutomationClient.CUIAutomation)
         tab_cond = uia.CreatePropertyCondition(UIAutomationClient.UIA_ControlTypePropertyId, UIAutomationClient.UIA_TabItemControlTypeId)
         btn_cond = uia.CreatePropertyCondition(UIAutomationClient.UIA_ControlTypePropertyId, UIAutomationClient.UIA_ButtonControlTypeId)
@@ -689,9 +747,9 @@ def close_browser_tab(tab_name_or_keyword: str) -> str:
                     tabs = win_elem.FindAll(UIAutomationClient.TreeScope_Descendants, tab_cond)
                     for i in range(tabs.Length):
                         t = tabs.GetElement(i)
-                        t_name = t.CurrentName or ""
-                        if kw in t_name.lower():
-                            # 1. Try finding and invoking the Close button inside this tab item
+                        t_name = (t.CurrentName or "").lower()
+                        if clean_kw in t_name or any(w in t_name for w in clean_kw.split() if len(w) > 2):
+                            # 1. Try finding and invoking Close button inside tab item
                             buttons = t.FindAll(UIAutomationClient.TreeScope_Descendants, btn_cond)
                             for b_idx in range(buttons.Length):
                                 btn = buttons.GetElement(b_idx)
@@ -702,11 +760,11 @@ def close_browser_tab(tab_name_or_keyword: str) -> str:
                                         if pat:
                                             inv = pat.QueryInterface(UIAutomationClient.IUIAutomationInvokePattern)
                                             inv.Invoke()
-                                            return f"Closed the '{tab_name_or_keyword}' tab."
+                                            return f"Closed the {clean_kw.capitalize()} tab."
                                     except Exception:
                                         pass
 
-                            # 2. Fallback: Select tab, bring window to front, and send Ctrl+W
+                            # 2. Fallback: Select tab, bring window to front, send Ctrl+W
                             try:
                                 sel_pat = t.GetCurrentPattern(UIAutomationClient.UIA_SelectionItemPatternId)
                                 if sel_pat:
@@ -716,7 +774,7 @@ def close_browser_tab(tab_name_or_keyword: str) -> str:
                                     user32.SetForegroundWindow(hwnd)
                                     time.sleep(0.1)
                                     pyautogui.hotkey("ctrl", "w")
-                                    return f"Closed the '{tab_name_or_keyword}' tab."
+                                    return f"Closed the {clean_kw.capitalize()} tab."
                             except Exception:
                                 pass
                 except Exception:
@@ -724,16 +782,16 @@ def close_browser_tab(tab_name_or_keyword: str) -> str:
 
         # If not found inside tabs, check if an entire window title matches
         for hwnd, win_title in hwnds:
-            if kw in win_title.lower() and any(b in win_title.lower() for b in ["chrome", "edge", "brave", "firefox", "opera"]):
+            if clean_kw in win_title.lower() and any(b in win_title.lower() for b in ["chrome", "edge", "brave", "firefox", "opera"]):
                 try:
                     user32.SetForegroundWindow(hwnd)
                     time.sleep(0.1)
                     pyautogui.hotkey("ctrl", "w")
-                    return f"Closed '{tab_name_or_keyword}' tab/window."
+                    return f"Closed {clean_kw.capitalize()} tab/window."
                 except Exception:
                     pass
 
-        return f"Could not find an open browser tab matching '{tab_name_or_keyword}'."
+        return f"Could not find an open browser tab matching '{clean_kw}'."
     except Exception as e:
         log.error("close_browser_tab error: %s", e)
         return f"Error closing tab: {e}"
