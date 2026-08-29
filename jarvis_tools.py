@@ -1870,6 +1870,7 @@ TOOL_FUNCTION_MAP = {
     "abort_shutdown": abort_shutdown,
     "like_current_post": like_current_post,
     "send_whatsapp_message": send_whatsapp_message,
+    "call_on_whatsapp": call_on_whatsapp,
     "send_email_compose": send_email_compose,
     "send_instagram_dm": send_instagram_dm_message,
     "send_instagram_dm_message": send_instagram_dm_message,
