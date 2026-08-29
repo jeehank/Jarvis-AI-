@@ -1512,6 +1512,27 @@ GROQ_TOOL_DECLARATIONS = [
     {
         "type": "function",
         "function": {
+            "name": "call_on_whatsapp",
+            "description": "Opens WhatsApp Desktop and initiates a voice or video call to a specific contact.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "contact_or_number": {
+                        "type": "string",
+                        "description": "The contact name or phone number to call."
+                    },
+                    "video": {
+                        "type": "boolean",
+                        "description": "If true, starts a video call. If false (default), starts a voice call."
+                    }
+                },
+                "required": ["contact_or_number"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "send_email_compose",
             "description": "Opens Gmail compose draft with recipient, subject line, and body message pre-filled.",
             "parameters": {
