@@ -913,6 +913,284 @@ def interruptible_sleep(seconds: float, interrupt_event: Optional[threading.Even
     return not interrupt_event.is_set()
 
 
+def is_opencode_installed() -> bool:
+    """Checks if the OpenCode CLI is installed and accessible on the system."""
+    if shutil.which("opencode.cmd") or shutil.which("opencode"):
+        return True
+    app_data = os.environ.get("APPDATA", "")
+    if app_data and (Path(app_data) / "npm" / "opencode.cmd").exists():
+        return True
+    return False
+
+
+def get_opencode_executable() -> str:
+    """Returns the command or absolute path to invoke opencode on Windows."""
+    found = shutil.which("opencode.cmd") or shutil.which("opencode")
+    if found:
+        return found
+    app_data = os.environ.get("APPDATA", "")
+    if app_data:
+        p = Path(app_data) / "npm" / "opencode.cmd"
+        if p.exists():
+            return str(p)
+    return "opencode.cmd"
+
+
+def ensure_opencode_installed() -> str:
+    """Checks if OpenCode CLI is installed; if not, attempts installation via npm."""
+    if is_opencode_installed():
+        return "OpenCode CLI is already installed and ready."
+
+    npm_exec = shutil.which("npm.cmd") or shutil.which("npm")
+    if npm_exec:
+        try:
+            log.info("Attempting auto-install of opencode-ai via npm...")
+            res = subprocess.run(["cmd.exe", "/c", "npm.cmd", "install", "-g", "opencode-ai"], capture_output=True, text=True, timeout=120)
+            if res.returncode == 0 and is_opencode_installed():
+                return "Successfully installed OpenCode CLI (opencode-ai) via npm."
+            return f"Attempted npm install. Output: {res.stdout} {res.stderr}"
+        except Exception as e:
+            return f"Failed auto-install: {e}. Please run 'npm install -g opencode-ai' manually."
+    return "npm not found. Please install Node.js and run 'npm install -g opencode-ai' to enable OpenCode."
+
+
+def run_terminal_command(command: str, working_dir: str = "", run_in_window: bool = False) -> str:
+    """
+    Executes a shell/terminal command on the computer (cmd/powershell).
+    If run_in_window is True, opens a visible terminal window running the command.
+    Otherwise, captures stdout/stderr and returns the output.
+    """
+    cmd_clean = command.strip()
+    if not cmd_clean:
+        return "No command provided to run."
+
+    cwd = working_dir.strip() if working_dir.strip() else os.getcwd()
+    try:
+        cwd_path = Path(os.path.expandvars(cwd)).resolve()
+        if not cwd_path.exists():
+            cwd_path = Path.cwd()
+    except Exception:
+        cwd_path = Path.cwd()
+
+    log.info("Executing terminal command: %r in %s (window=%s)", cmd_clean, cwd_path, run_in_window)
+
+    if run_in_window:
+        try:
+            if sys.platform == "win32":
+                subprocess.Popen(
+                    f'start cmd.exe /k "cd /d "{cwd_path}" && {cmd_clean}"',
+                    shell=True
+                )
+                return f"Launched terminal window executing: '{cmd_clean}' in {cwd_path}"
+            else:
+                subprocess.Popen(["x-terminal-emulator", "-e", cmd_clean], cwd=str(cwd_path))
+                return f"Launched terminal executing: '{cmd_clean}'"
+        except Exception as e:
+            log.error("Failed launching terminal window: %s", e)
+            return f"Failed to launch terminal window: {e}"
+
+    try:
+        res = subprocess.run(
+            cmd_clean,
+            shell=True,
+            cwd=str(cwd_path),
+            capture_output=True,
+            text=True,
+            timeout=45
+        )
+        out = res.stdout.strip()
+        err = res.stderr.strip()
+        combined = []
+        if out:
+            combined.append(out)
+        if err:
+            combined.append(f"Errors/Warnings:\n{err}")
+
+        output_str = "\n".join(combined).strip()
+        if not output_str:
+            output_str = f"Command executed successfully with return code {res.returncode} (no output)."
+        elif len(output_str) > 1500:
+            output_str = output_str[:1500] + "\n...[output truncated]"
+        return output_str
+    except subprocess.TimeoutExpired:
+        return "Terminal command timed out after 45 seconds."
+    except Exception as e:
+        log.error("run_terminal_command error: %s", e)
+        return f"Error executing terminal command: {e}"
+
+
+def create_file_or_folder(path: str, content: str = "", is_folder: bool = False) -> str:
+    """Creates a new file (with specified content) or directory at the given path."""
+    target_raw = path.strip()
+    if not target_raw:
+        return "Please specify a file or folder path."
+
+    p = Path(os.path.expandvars(target_raw)).resolve()
+    try:
+        if is_folder or (not p.suffix and not content):
+            p.mkdir(parents=True, exist_ok=True)
+            return f"Successfully created folder: {p}"
+        else:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(content, encoding="utf-8")
+            return f"Successfully created file: {p} ({len(content)} characters written)."
+    except Exception as e:
+        log.error("create_file_or_folder error: %s", e)
+        return f"Failed to create {'folder' if is_folder else 'file'} at {p}: {e}"
+
+
+def search_files(query: str, root_dir: str = "", max_results: int = 15) -> str:
+    """
+    Searches for files or folders matching a query name/pattern across common user locations.
+    """
+    q = query.strip()
+    if not q:
+        return "Please provide a search query or filename."
+
+    roots = []
+    if root_dir.strip():
+        resolved_root = Path(os.path.expandvars(root_dir.strip())).resolve()
+        if resolved_root.exists():
+            roots.append(resolved_root)
+
+    if not roots:
+        user_home = Path.home()
+        roots = [
+            Path.cwd(),
+            user_home / "Desktop",
+            user_home / "Documents",
+            user_home / "Downloads",
+        ]
+
+    results = []
+    seen = set()
+
+    for root in roots:
+        if not root.exists():
+            continue
+        try:
+            for current_dir, dirs, files in os.walk(root):
+                dirs[:] = [d for d in dirs if d not in (".git", "node_modules", "__pycache__", ".venv", "venv", ".cache", "AppData")]
+                try:
+                    rel = Path(current_dir).relative_to(root)
+                    if len(rel.parts) > 4:
+                        dirs.clear()
+                        continue
+                except Exception:
+                    pass
+
+                for f in files:
+                    if q.lower() in f.lower():
+                        full_path = Path(current_dir) / f
+                        if str(full_path) not in seen:
+                            seen.add(str(full_path))
+                            results.append(str(full_path))
+                            if len(results) >= max_results:
+                                break
+                if len(results) >= max_results:
+                    break
+        except Exception as e:
+            log.warning("Search error in %s: %s", root, e)
+
+    if not results:
+        return f"No files found matching '{q}' in common directories."
+    return f"Found {len(results)} matches for '{q}':\n" + "\n".join(f"- {r}" for r in results)
+
+
+def open_file_or_editor(file_path: str, editor: str = "") -> str:
+    """
+    Opens a file with default program or specified editor (e.g. 'cursor', 'vscode', 'notepad').
+    """
+    raw_path = file_path.strip()
+    if not raw_path:
+        return "Please specify a file path to open."
+
+    p = Path(os.path.expandvars(raw_path)).resolve()
+    if not p.exists():
+        # Check if file exists relative to cwd or user directories
+        for cand in [Path.cwd() / raw_path, Path.home() / "Desktop" / raw_path, Path.home() / "Downloads" / raw_path]:
+            if cand.exists():
+                p = cand
+                break
+        else:
+            return f"File does not exist: {p}"
+
+    editor_clean = editor.lower().strip()
+    try:
+        if editor_clean in ("cursor", "code", "vscode", "notepad"):
+            exec_name = "code" if editor_clean == "vscode" else editor_clean
+            subprocess.Popen(f'{exec_name} "{p}"', shell=True)
+            return f"Opened {p.name} in {editor.title()}."
+
+        if sys.platform == "win32":
+            os.startfile(str(p))
+        else:
+            subprocess.Popen(["xdg-open", str(p)])
+        return f"Opened file: {p.name}"
+    except Exception as e:
+        log.error("open_file_or_editor error: %s", e)
+        return f"Failed opening file {p}: {e}"
+
+
+def run_opencode_task(prompt: str, working_dir: str = "", in_terminal_window: bool = True) -> str:
+    """
+    Executes an autonomous coding, debugging, or system task using the OpenCode CLI (opencode.cmd).
+    Takes a detailed, enhanced prompt and launches OpenCode in a visible terminal window
+    or runs headlessly and returns the output.
+    """
+    p_clean = prompt.strip()
+    if not p_clean:
+        return "Please provide a task prompt for OpenCode."
+
+    if not is_opencode_installed():
+        install_res = ensure_opencode_installed()
+        if not is_opencode_installed():
+            return f"OpenCode CLI is not installed: {install_res}. Please install via 'npm install -g opencode-ai'."
+
+    opencode_bin = get_opencode_executable()
+    cwd = working_dir.strip() if working_dir.strip() else os.getcwd()
+    try:
+        cwd_path = Path(os.path.expandvars(cwd)).resolve()
+        if not cwd_path.exists():
+            cwd_path = Path.cwd()
+    except Exception:
+        cwd_path = Path.cwd()
+
+    log.info("Launching OpenCode task: %r in %s (window=%s)", p_clean[:80], cwd_path, in_terminal_window)
+
+    if in_terminal_window and sys.platform == "win32":
+        try:
+            # Escape internal quotes for cmd.exe start
+            safe_prompt = p_clean.replace('"', '\\"')
+            cmd_line = f'start cmd.exe /k "cd /d "{cwd_path}" && "{opencode_bin}" run --auto "{safe_prompt}""'
+            subprocess.Popen(cmd_line, shell=True)
+            return f"Opened terminal and launched OpenCode with prompt: '{p_clean[:100]}...' (Working Directory: {cwd_path})"
+        except Exception as e:
+            log.error("Failed opening OpenCode terminal: %s", e)
+            return f"Failed to launch OpenCode terminal: {e}"
+
+    # Headless execution
+    try:
+        res = subprocess.run(
+            ["cmd.exe", "/c", opencode_bin, "run", "--auto", p_clean],
+            cwd=str(cwd_path),
+            capture_output=True,
+            text=True,
+            timeout=180
+        )
+        out = res.stdout.strip()
+        err = res.stderr.strip()
+        result_text = out or err or "OpenCode task completed."
+        if len(result_text) > 1500:
+            result_text = result_text[:1500] + "\n...[output truncated]"
+        return f"OpenCode Execution Result:\n{result_text}"
+    except subprocess.TimeoutExpired:
+        return "OpenCode task timed out after 180 seconds."
+    except Exception as e:
+        log.error("run_opencode_task error: %s", e)
+        return f"Error executing OpenCode task: {e}"
+
+
 # ── Groq / OpenAI Standard Tool Declarations ──────────────────────────
 
 GROQ_TOOL_DECLARATIONS = [
@@ -1279,7 +1557,7 @@ GROQ_TOOL_DECLARATIONS = [
         "type": "function",
         "function": {
             "name": "get_system_volume",
-            "description": "Queries the current computer master audio volume level percentage.",
+            "description": "Queries the current master audio volume level percentage.",
             "parameters": {
                 "type": "object",
                 "properties": {}
@@ -1356,6 +1634,127 @@ GROQ_TOOL_DECLARATIONS = [
                 "required": ["action"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_terminal_command",
+            "description": "Executes shell commands in Windows terminal / Command Prompt (CMD or PowerShell) and returns output, or opens an interactive terminal window.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "The command line string to run (e.g. 'dir', 'git status', 'python test.py', 'pip list')."
+                    },
+                    "working_dir": {
+                        "type": "string",
+                        "description": "Optional working directory path (defaults to current directory)."
+                    },
+                    "run_in_window": {
+                        "type": "boolean",
+                        "description": "Whether to launch the command in a visible new terminal window (default false)."
+                    }
+                },
+                "required": ["command"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_file_or_folder",
+            "description": "Creates a new file (with specified content) or creates a folder on the computer.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "The file or folder path to create (e.g. 'app.py', 'src/utils.js', 'my_notes.txt')."
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "The text or code content to write inside the file (optional)."
+                    },
+                    "is_folder": {
+                        "type": "boolean",
+                        "description": "Set to true if creating a directory instead of a file."
+                    }
+                },
+                "required": ["path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_files",
+            "description": "Searches for files or directories by name or pattern on the computer (Desktop, Downloads, Documents, project folder).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The filename or search string (e.g. 'invoice', '.pdf', 'main.py')."
+                    },
+                    "root_dir": {
+                        "type": "string",
+                        "description": "Optional root directory to search in."
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of results to return (default 15)."
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "open_file_or_editor",
+            "description": "Opens a specific file using default system viewer or a code editor like Cursor, VS Code, or Notepad.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "The path to the file to open."
+                    },
+                    "editor": {
+                        "type": "string",
+                        "description": "Optional editor: 'cursor', 'code' / 'vscode', or 'notepad'. If empty, opens with default system application."
+                    }
+                },
+                "required": ["file_path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_opencode_task",
+            "description": "Executes complex coding, debugging, project creation, or autonomous system tasks using the OpenCode CLI ('opencode.cmd') in the terminal with an improved, detailed prompt.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "An improved, detailed, step-by-step instruction formulated for OpenCode to carry out the user's coding or system request."
+                    },
+                    "working_dir": {
+                        "type": "string",
+                        "description": "Optional working directory where OpenCode should execute the task."
+                    },
+                    "in_terminal_window": {
+                        "type": "boolean",
+                        "description": "Whether to open a visible interactive terminal window running OpenCode (default true)."
+                    }
+                },
+                "required": ["prompt"]
+            }
+        }
     }
 ]
 
@@ -1391,4 +1790,10 @@ TOOL_FUNCTION_MAP = {
     "press_keyboard_keys": press_keyboard_keys,
     "type_keyboard_text": type_keyboard_text,
     "system_action": system_action,
+    "run_terminal_command": run_terminal_command,
+    "create_file_or_folder": create_file_or_folder,
+    "search_files": search_files,
+    "open_file_or_editor": open_file_or_editor,
+    "run_opencode_task": run_opencode_task,
 }
+

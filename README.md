@@ -16,6 +16,11 @@ To ensure Jarvis never cuts you off mid-sentence:
 ### Examples:
 - *"Jarvis, close YouTube tab, over."*
 - *"Jarvis, open Roblox, over."*
+- *"Jarvis, create a file called test.py with print hello world, over."*
+- *"Jarvis, search for file invoice.pdf, over."*
+- *"Jarvis, open file main.py in cursor, over."*
+- *"Jarvis, run command dir, over."*
+- *"Jarvis, ask opencode to build a full stack flask app, over."*
 - *"Jarvis, what is the weather report, over."*
 - *"Jarvis, what time is it, over."*
 - *"Jarvis, show me the route from my location to Durgapur, over."*
@@ -35,6 +40,10 @@ To ensure Jarvis never cuts you off mid-sentence:
 
 | Category | Examples |
 | --- | --- |
+| **OpenCode AI Autonomous Coding** | "Jarvis, ask opencode to create a snake game in python, over" *(crafts refined prompt and runs OpenCode CLI in terminal)* |
+| **Terminal Command Execution** | "Jarvis, run command dir, over" / "Jarvis, execute command git status, over" *(runs in terminal, captures and speaks output)* |
+| **File Management** | "Jarvis, create a file called app.py with print hello, over" / "Jarvis, search for file notes.txt, over" |
+| **Open Files in Editors** | "Jarvis, open file main.py in cursor, over" / "Jarvis, open file app.py in vscode, over" |
 | **Close Specific Tabs** | "Jarvis, close YouTube tab, over" / "Jarvis, close Spotify tab, over" *(specifically closes that tab via UIAutomation)* |
 | **Search Bar App Launch** | "Jarvis, open Roblox, over" / "Jarvis, open Calculator, over" *(searches taskbar search bar and opens closest match)* |
 | **Weather & Time (Kolkata)** | "Jarvis, what is the weather report, over" / "Jarvis, what time is it, over" *(live weather & IST time for Kolkata, West Bengal)* |
@@ -63,7 +72,7 @@ To ensure Jarvis never cuts you off mid-sentence:
 ```
 jarvis/
   jarvis_agent.py    # Main voice agent loop (start here)
-  jarvis_tools.py    # Automation tools (clicks, typing, WhatsApp, display power, volume, etc.)
+  jarvis_tools.py    # Automation tools (terminal, OpenCode, file tools, clicks, WhatsApp, etc.)
   .env               # API keys (Groq, ElevenLabs)
   requirements.txt   # Python dependencies
 ```
@@ -72,13 +81,23 @@ jarvis/
 
 ## Setup
 
-### 1. Install dependencies
+### 1. Install Python dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Configure `.env`
+### 2. Install OpenCode AI CLI (for autonomous coding in terminal)
+
+Install the global OpenCode CLI using npm:
+
+```bash
+npm install -g opencode-ai
+```
+
+*(Verify installation by running `opencode.cmd --version`)*
+
+### 3. Configure `.env`
 
 ```env
 ELEVENLABS_API_KEY=your_elevenlabs_key
@@ -87,7 +106,7 @@ GROQ_API_KEY=your_groq_api_key
 GROQ_MODEL=openai/gpt-oss-120b
 ```
 
-### 3. Run
+### 4. Run
 
 ```bash
 python jarvis_agent.py
@@ -97,7 +116,15 @@ Say **"Jarvis ... [your command] ... Over"** or type commands directly in the te
 
 ---
 
+## OpenCode CLI & Terminal Powers
+
+- When you ask JARVIS to write code, build an application, create scripts, or troubleshoot code, JARVIS formulates an enhanced, high-precision prompt and launches **OpenCode CLI** in an interactive terminal window to execute the job autonomously.
+- You can also directly run shell commands (e.g. `dir`, `git status`, `pip list`, `python script.py`), create files/directories, and search for files across your drive.
+
+---
+
 ## Sleep & Turn On Behavior
 
 - **"Jarvis, go to sleep, over"**: Sends a Windows monitor standby signal. Displays power down immediately while Jarvis keeps running in the background and listening for your voice.
 - **"Jarvis, turn on, over"** / **"Jarvis, wake up, over"**: Powers on the display, brings the workstation active, and acknowledges your command.
+

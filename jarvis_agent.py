@@ -25,7 +25,13 @@ import sounddevice as sd
 import speech_recognition as sr
 from elevenlabs.client import ElevenLabs
 
-from jarvis_tools import GROQ_TOOL_DECLARATIONS, TOOL_FUNCTION_MAP, ACCOUNT_URLS
+from jarvis_tools import (
+    GROQ_TOOL_DECLARATIONS,
+    TOOL_FUNCTION_MAP,
+    ACCOUNT_URLS,
+    is_opencode_installed,
+    ensure_opencode_installed,
+)
 
 # ── Setup ──────────────────────────────────────────────────────────
 
@@ -53,7 +59,10 @@ SYSTEM_PROMPT = (
     "5. Weather & Time: Use 'get_weather' and 'get_time' to provide current reports for Kolkata, West Bengal.\n"
     "6. Messaging: When composing WhatsApp or Instagram DMs, GENERATE the actual thoughtful message content (no placeholders).\n"
     "7. WhatsApp Group: If asked to message 'the group', the group name is 'BLACKBIRD FLY'.\n"
-    "8. Keep spoken responses concise, witty, and polite (1-2 sentences maximum). Address the user as 'sir'."
+    "8. Terminal & Shell Commands: You have full access to run Windows terminal commands (cmd / powershell) using 'run_terminal_command'. When asked to run a command, list files, check processes, run scripts, or execute shell instructions, use 'run_terminal_command'.\n"
+    "9. File Operations: Use 'create_file_or_folder' to create files with rich code/text or make directories. Use 'search_files' to locate files across the system. Use 'open_file_or_editor' to open files with default apps, Cursor, VS Code, or Notepad.\n"
+    "10. Autonomous Coding & Tasks (OpenCode CLI): You are integrated with OpenCode CLI ('opencode.cmd'). Whenever the user asks you to build an app, code a feature, solve complex programming tasks, refactor, write scripts, or execute developer workflows, formulate a detailed, improved, step-by-step prompt based on the user's request and execute it via 'run_opencode_task'. This launches a live terminal running OpenCode to carry out the task autonomously.\n"
+    "11. Keep spoken responses concise, witty, and polite (1-2 sentences maximum). Address the user as 'sir'."
 )
 
 # Contacts that map to Instagram DM threads
@@ -249,6 +258,9 @@ class Brain:
             or self._handle_group_message(t)
             or self._handle_screen(t)
             or self._handle_scroll(t)
+            or self._handle_file_operations(t)
+            or self._handle_terminal(t)
+            or self._handle_opencode(t)
             or self._handle_open(t)
             or self._handle_volume(t)
             or self._handle_screenshot(t)
@@ -626,6 +638,94 @@ class Brain:
             return True
         return False
 
+    def _handle_terminal(self, t: str) -> bool:
+        """Handles explicit requests to run terminal commands."""
+        term_triggers = ("run command", "terminal command", "execute command", "run in terminal", "in terminal run", "run in cmd", "execute in terminal")
+        for trig in term_triggers:
+            if trig in t:
+                cmd = re.sub(rf"^.*?\b{trig}\s+", "", t, flags=re.IGNORECASE).strip(" '\"`")
+                if cmd:
+                    self.voice.speak("Executing command in terminal, sir.")
+                    res = TOOL_FUNCTION_MAP["run_terminal_command"](cmd)
+                    safe_print(f"  JARVIS (Terminal):\n{res}")
+                    first_line = res.strip().split("\n")[0] if res else "Command executed."
+                    self.voice.speak(f"Command executed, sir. {first_line[:80]}")
+                    return True
+
+        if t.startswith("run ") and any(c in t for c in ("python ", "pip ", "git ", "npm ", "node ", "cargo ", "dir ", "cd ", "echo ")):
+            cmd = t[4:].strip(" '\"`")
+            self.voice.speak(f"Running {cmd.split()[0]} in terminal, sir.")
+            res = TOOL_FUNCTION_MAP["run_terminal_command"](cmd)
+            safe_print(f"  JARVIS (Terminal):\n{res}")
+            return True
+
+        return False
+
+    def _handle_file_operations(self, t: str) -> bool:
+        """Handles file creation, searching, and opening."""
+        # 1. Create file or folder
+        create_file_match = re.search(r"(?:create|make)\s+(?:a\s+)?(?:new\s+)?file\s+(?:called\s+|named\s+)?([a-zA-Z0-9_.\-\/\\]+)(?:\s+(?:with|saying|containing)\s+(.+))?", t, flags=re.IGNORECASE)
+        if create_file_match:
+            fname = create_file_match.group(1).strip()
+            content = create_file_match.group(2).strip() if create_file_match.group(2) else ""
+            self.voice.speak(f"Creating file {fname}, sir.")
+            res = TOOL_FUNCTION_MAP["create_file_or_folder"](fname, content, False)
+            safe_print(f"  JARVIS: {res}")
+            self.voice.speak("File created, sir.")
+            return True
+
+        create_folder_match = re.search(r"(?:create|make)\s+(?:a\s+)?(?:new\s+)?folder\s+(?:called\s+|named\s+)?([a-zA-Z0-9_.\-\/\\]+)", t, flags=re.IGNORECASE)
+        if create_folder_match:
+            folder_name = create_folder_match.group(1).strip()
+            self.voice.speak(f"Creating folder {folder_name}, sir.")
+            res = TOOL_FUNCTION_MAP["create_file_or_folder"](folder_name, "", True)
+            safe_print(f"  JARVIS: {res}")
+            self.voice.speak("Folder created, sir.")
+            return True
+
+        # 2. Search for files
+        search_file_match = re.search(r"(?:search\s+for\s+(?:a\s+)?file|find\s+(?:the\s+|a\s+)?file|search\s+files?)\s+(?:called\s+|named\s+|for\s+)?([a-zA-Z0-9_.*\-]+)", t, flags=re.IGNORECASE)
+        if search_file_match:
+            query = search_file_match.group(1).strip()
+            self.voice.speak(f"Searching for {query} across your system, sir.")
+            res = TOOL_FUNCTION_MAP["search_files"](query)
+            safe_print(f"  JARVIS: {res}")
+            match_count = res.count("- ")
+            self.voice.speak(f"Found {match_count} matching files, sir." if match_count else "No matching files found, sir.")
+            return True
+
+        # 3. Open file in editor: "open file main.py in cursor/vscode/notepad"
+        open_editor_match = re.search(r"(?:open\s+(?:file\s+)?)(.+?)\s+in\s+(cursor|vscode|code|notepad)", t, flags=re.IGNORECASE)
+        if open_editor_match:
+            fpath = open_editor_match.group(1).replace("file", "").strip()
+            editor = open_editor_match.group(2).strip()
+            self.voice.speak(f"Opening {fpath} in {editor.title()}, sir.")
+            res = TOOL_FUNCTION_MAP["open_file_or_editor"](fpath, editor)
+            safe_print(f"  JARVIS: {res}")
+            return True
+
+        return False
+
+    def _handle_opencode(self, t: str) -> bool:
+        """Handles explicit OpenCode commands or coding delegation."""
+        opencode_triggers = ("opencode", "open code", "ask opencode", "tell opencode", "run opencode")
+        for trig in opencode_triggers:
+            if trig in t:
+                task = re.sub(rf"^.*?\b{trig}\s+(?:to\s+)?", "", t, flags=re.IGNORECASE).strip()
+                if not task:
+                    task = "Start interactive coding assistant session"
+
+                improved_prompt = (
+                    f"You are OpenCode AI. Task: {task}. "
+                    f"Analyze the repository/workspace, plan your implementation, and execute all required code and file changes autonomously."
+                )
+                self.voice.speak("Launching OpenCode in terminal with an improved prompt for your task, sir.")
+                res = TOOL_FUNCTION_MAP["run_opencode_task"](improved_prompt, in_terminal_window=True)
+                safe_print(f"  JARVIS: {res}")
+                return True
+
+        return False
+
     def _handle_search(self, t: str) -> bool:
         if not (t.startswith("search ") or t.startswith("google ")):
             return False
@@ -872,6 +972,12 @@ def main():
     print("  JARVIS  -  Voice Assistant (Powered by Groq)")
     print("=" * 60)
     print()
+    opencode_status = "Ready (v1.18.25)" if is_opencode_installed() else "Not Installed (run 'npm install -g opencode-ai')"
+    print(f"  [System Capabilities]")
+    print(f"  • Terminal Access:   Enabled (cmd / powershell)")
+    print(f"  • File Operations:   Create, Search, Open")
+    print(f"  • OpenCode AI CLI:   {opencode_status}")
+    print()
     print("  Voice Protocol:")
     print("    Start with: 'Jarvis ...'")
     print("    End with:   '... Over'")
@@ -879,9 +985,11 @@ def main():
     print()
     print("  Examples:")
     print("    'Jarvis close YouTube tab over'")
-    print("    'Jarvis open Roblox over'")
+    print("    'Jarvis create a file called test.py with print hello over'")
+    print("    'Jarvis search for file notes.txt over'")
+    print("    'Jarvis run command dir over'")
+    print("    'Jarvis ask opencode to build a snake game in python over'")
     print("    'Jarvis what is the weather in Kolkata over'")
-    print("    'Jarvis what time is it over'")
     print("    'Jarvis show route from my location to Durgapur over'")
     print("    'Jarvis shutdown computer over'")
     print("    'Jarvis stop'")
