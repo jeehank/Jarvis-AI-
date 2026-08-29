@@ -380,6 +380,70 @@ def send_whatsapp_message(contact_or_number: str, message: str, use_app: bool = 
         return f"Opened WhatsApp Web and sending message to {contact_clean}."
 
 
+def call_on_whatsapp(contact_or_number: str, video: bool = False) -> str:
+    """Opens WhatsApp Desktop, searches for a contact, and initiates a voice or video call.
+
+    Uses WhatsApp Desktop keyboard shortcuts:
+    - Voice call: Ctrl+Shift+C (after opening the chat)
+    - Video call: Ctrl+Shift+V (after opening the chat)
+    """
+    import threading
+
+    raw_contact = contact_or_number.strip()
+    contact_lower = raw_contact.lower().strip()
+    contact_clean = WHATSAPP_CONTACT_ALIASES.get(contact_lower, raw_contact)
+    call_type = "video" if video else "voice"
+
+    if sys.platform != "win32":
+        return "WhatsApp calling is only supported on Windows with WhatsApp Desktop."
+
+    # Launch WhatsApp Desktop app
+    try:
+        subprocess.Popen(["explorer.exe", r"shell:AppsFolder\5319275A.WhatsAppDesktop_cv1g1gvanyjgm!App"])
+    except Exception:
+        try:
+            subprocess.Popen(["cmd.exe", "/c", "start", "whatsapp:"], shell=True)
+        except Exception as e:
+            return f"Could not launch WhatsApp Desktop: {e}"
+
+    def _make_call():
+        try:
+            # 1. Wait for WhatsApp window to open and take focus
+            time.sleep(3.5)
+
+            # 2. Focus search bar via Ctrl+F
+            pyautogui.hotkey("ctrl", "f")
+            time.sleep(0.4)
+
+            # 3. Clear existing search and paste contact name
+            pyautogui.hotkey("ctrl", "a")
+            time.sleep(0.1)
+            pyperclip.copy(contact_clean)
+            pyautogui.hotkey("ctrl", "v")
+            time.sleep(2.0)
+
+            # 4. Move down to the first search result and open the chat
+            pyautogui.press("down")
+            time.sleep(0.2)
+            pyautogui.press("enter")
+            time.sleep(1.5)
+
+            # 5. Initiate call using keyboard shortcut
+            if video:
+                # Video call: Ctrl+Shift+V
+                pyautogui.hotkey("ctrl", "shift", "v")
+            else:
+                # Voice call: Ctrl+Shift+C
+                pyautogui.hotkey("ctrl", "shift", "c")
+
+            log.info("Initiated %s call to %s on WhatsApp Desktop.", call_type, contact_clean)
+        except Exception as e:
+            log.warning("WhatsApp %s call error: %s", call_type, e)
+
+    threading.Thread(target=_make_call, daemon=True).start()
+    return f"Opening WhatsApp Desktop and starting a {call_type} call with {contact_clean}."
+
+
 def send_email_compose(recipient: str = "", subject: str = "", body: str = "") -> str:
     """Opens Gmail compose window with recipient, subject, and body pre-filled."""
     rec_encoded = urllib.parse.quote(recipient.strip())
