@@ -1020,12 +1020,20 @@ def run_terminal_command(command: str, working_dir: str = "", run_in_window: boo
 
 
 def create_file_or_folder(path: str, content: str = "", is_folder: bool = False) -> str:
-    """Creates a new file (with specified content) or directory at the given path."""
+    """Creates a new file (with specified content) or directory at the given path.
+    Non-absolute paths are resolved relative to the user's Downloads folder.
+    """
     target_raw = path.strip()
     if not target_raw:
         return "Please specify a file or folder path."
 
-    p = Path(os.path.expandvars(target_raw)).resolve()
+    expanded = Path(os.path.expandvars(target_raw))
+    if expanded.is_absolute():
+        p = expanded.resolve()
+    else:
+        # Default to user's Downloads folder for relative paths
+        downloads_dir = Path.home() / "Downloads"
+        p = (downloads_dir / expanded).resolve()
     try:
         if is_folder or (not p.suffix and not content):
             p.mkdir(parents=True, exist_ok=True)
