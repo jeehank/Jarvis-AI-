@@ -11,4 +11,5 @@ pycaw>=20240210
 requests>=2.31.0
 pillow>=10.0.0
 pyperclip>=1.8.0
+openpyxl>=3.1.0
 
