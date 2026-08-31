@@ -1137,8 +1137,28 @@ def create_file(file_path: str, content: str = "", open_after: bool = False) -> 
 
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(content, encoding="utf-8")
-        msg = f"Successfully created file: {p} ({len(content)} characters written)."
+        
+        if p.suffix.lower() == ".xlsx":
+            try:
+                import openpyxl
+                import csv
+                import io
+                wb = openpyxl.Workbook()
+                ws = wb.active
+                # Try to parse content as CSV
+                reader = csv.reader(io.StringIO(content.strip()))
+                for row in reader:
+                    ws.append(row)
+                wb.save(p)
+                msg = f"Successfully created Excel file: {p}"
+            except ImportError:
+                # Fallback if openpyxl not installed
+                p.write_text(content, encoding="utf-8")
+                msg = f"Created file {p} (Note: openpyxl missing, written as text)."
+        else:
+            p.write_text(content, encoding="utf-8")
+            msg = f"Successfully created file: {p} ({len(content)} characters written)."
+
         if open_after:
             try:
                 if p.suffix.lower() in (".html", ".htm"):
