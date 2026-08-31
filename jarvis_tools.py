@@ -1121,19 +1121,26 @@ def execute_system_command(command: str, working_dir: str = "") -> str:
         return f"Error executing system command: {e}"
 
 
+def _resolve_user_dest(raw_path: str) -> Path:
+    """Resolves a destination path, defaulting relative paths to the user's Downloads directory."""
+    raw = raw_path.strip()
+    expanded = Path(os.path.expandvars(raw))
+    if expanded.is_absolute():
+        return expanded.resolve()
+    downloads_dir = Path.home() / "Downloads"
+    return (downloads_dir / expanded).resolve()
+
+
 def create_file(file_path: str, content: str = "", open_after: bool = False) -> str:
     """
     Creates or overwrites a file with the given text/code content and optional auto-open.
+    Relative paths are saved in the user's Downloads folder.
     """
     raw_path = file_path.strip()
     if not raw_path:
         return "Please specify a file path."
 
-    expanded = Path(os.path.expandvars(raw_path))
-    if expanded.is_absolute():
-        p = expanded.resolve()
-    else:
-        p = (Path.cwd() / expanded).resolve()
+    p = _resolve_user_dest(raw_path)
 
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -1175,12 +1182,11 @@ def create_file(file_path: str, content: str = "", open_after: bool = False) -> 
 
 
 def create_folder(folder_path: str) -> str:
-    """Creates a new directory (and any necessary parent directories)."""
+    """Creates a new directory in the user's Downloads folder (and any necessary parent directories)."""
     raw = folder_path.strip()
     if not raw:
         return "Please specify a folder path."
-    expanded = Path(os.path.expandvars(raw))
-    p = expanded.resolve() if expanded.is_absolute() else (Path.cwd() / expanded).resolve()
+    p = _resolve_user_dest(raw)
     try:
         p.mkdir(parents=True, exist_ok=True)
         return f"Successfully created folder: {p}"
@@ -1205,19 +1211,19 @@ def create_web_project(
     open_in_browser: bool = True
 ) -> str:
     """
-    Creates a complete, playable web application, game, or website.
+    Creates a complete, playable web application, game, or website directly in the user's Downloads folder.
     Can create either a single self-contained .html file or a clean project folder with index.html, style.css, and script.js.
     Automatically launches the generated game/website in the default browser so the user can immediately play/view it.
     """
     clean_name = re.sub(r"[^\w\-]", "_", project_name.strip()) or "web_project"
-    projects_dir = Path.cwd() / "projects"
-    projects_dir.mkdir(exist_ok=True)
+    downloads_dir = Path.home() / "Downloads"
+    downloads_dir.mkdir(parents=True, exist_ok=True)
 
     try:
         if single_file or (not css_code.strip() and not js_code.strip()):
-            # Single self-contained HTML file
+            # Single self-contained HTML file in Downloads
             file_name = f"{clean_name}.html" if not clean_name.endswith(".html") else clean_name
-            target_path = projects_dir / file_name
+            target_path = downloads_dir / file_name
 
             full_html = html_code
             if css_code.strip() and "<style>" not in full_html:
@@ -1226,16 +1232,16 @@ def create_web_project(
                 full_html = full_html.replace("</body>", f"<script>\n{js_code}\n</script>\n</body>") if "</body>" in full_html else full_html + f"\n<script>\n{js_code}\n</script>"
 
             target_path.write_text(full_html, encoding="utf-8")
-            log.info("Created standalone web app/game: %s", target_path)
+            log.info("Created standalone web app/game in Downloads: %s", target_path)
 
             if open_in_browser:
                 webbrowser.open(target_path.as_uri())
 
-            return f"Successfully created single-file web app/game: {target_path}. Opened in browser for you to play/view, sir."
+            return f"Successfully created web app/game in Downloads: {target_path}. Opened in browser for you to play/view, sir."
 
         else:
-            # Multi-file folder with index.html, style.css, script.js
-            proj_folder = projects_dir / clean_name
+            # Multi-file folder with index.html, style.css, script.js inside Downloads
+            proj_folder = downloads_dir / clean_name
             proj_folder.mkdir(parents=True, exist_ok=True)
 
             html_file = proj_folder / "index.html"
@@ -1255,12 +1261,12 @@ def create_web_project(
             if js_code.strip():
                 js_file.write_text(js_code, encoding="utf-8")
 
-            log.info("Created web project in %s", proj_folder)
+            log.info("Created web project in Downloads: %s", proj_folder)
 
             if open_in_browser:
                 webbrowser.open(html_file.as_uri())
 
-            return f"Successfully created web project in '{proj_folder}' with index.html, style.css, and script.js. Opened in browser for you, sir."
+            return f"Successfully created web project in Downloads at '{proj_folder}' with index.html, style.css, and script.js. Opened in browser for you, sir."
 
     except Exception as e:
         log.error("create_web_project error: %s", e)
@@ -1857,52 +1863,6 @@ GROQ_TOOL_DECLARATIONS = [
                     "working_dir": {
                         "type": "string",
                         "description": "Optional working directory."
-                    }
-                },
-                "required": ["command"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "create_web_project",
-            "description": "Generates complete, playable web apps, games (like Snake, Pong, TicTacToe, Flappy Bird), or websites with full HTML, modern CSS styling, and JavaScript logic, and automatically opens them in the browser for the user to play.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "project_name": {
-                        "type": "string",
-                        "description": "Name of the game or website (e.g. 'snake_game', 'portfolio_website', 'flappy_bird')."
-                    },
-                    "html_code": {
-                        "type": "string",
-                        "description": "Complete, full HTML5 code (with canvas, DOM layout, controls, UI)."
-                    },
-                    "css_code": {
-                        "type": "string",
-                        "description": "Complete modern CSS code (colors, animations, responsive layout)."
-                    },
-                    "js_code": {
-                        "type": "string",
-                        "description": "Complete JavaScript logic (game loop, event listeners, score, collision, sound, interactions)."
-                    },
-                    "single_file": {
-                        "type": "boolean",
-                        "description": "True to generate a single self-contained .html file, False for separate index.html, style.css, script.js files."
-                    },
-                    "open_in_browser": {
-                        "type": "boolean",
-                        "description": "True to immediately launch in web browser (default True)."
-                    }
-                },
-                "required": ["project_name", "html_code"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "create_file",
             "description": "Creates a file with complete content (e.g. Python scripts, text files, JSON, markdown, HTML/CSS).",
             "parameters": {
