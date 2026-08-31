@@ -61,255 +61,6 @@ ACCOUNT_URLS = {
     "notion": "https://www.notion.so",
 }
 
-GROQ_TOOL_DECLARATIONS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "type_keyboard_text",
-            "description": "Types arbitrary text using the keyboard.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "text": {"type": "string"},
-                    "press_enter": {"type": "boolean"}
-                },
-                "required": ["text"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "system_action",
-            "description": "Executes system actions like lock, sleep, mute, unmute, minimize_all.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "action": {
-                        "type": "string",
-                        "description": "Action to perform."
-                    }
-                },
-                "required": ["action"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "run_command_in_terminal",
-            "description": "Opens the Windows Terminal via the taskbar search bar and visibly types in the command live on screen so the user can watch it execute.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": "The command line string to type and execute in the terminal (e.g. 'dir', 'git status', 'python test.py', 'pip list', 'npm start')."
-                    },
-                    "working_dir": {
-                        "type": "string",
-                        "description": "Optional working directory path."
-                    },
-                    "use_taskbar_search": {
-                        "type": "boolean",
-                        "description": "True to open Terminal using taskbar search and visibly type the command (default True)."
-                    }
-                },
-                "required": ["command"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "execute_system_command",
-            "description": "Runs a command silently in the background and returns stdout and stderr.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": "The shell command to execute."
-                    },
-                    "working_dir": {
-                        "type": "string",
-                        "description": "Optional working directory."
-                    }
-                },
-                "required": ["command"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "create_web_project",
-            "description": "Generates complete, bug-free, playable web applications, HTML5 games (e.g. Snake, Pong, Space Invaders, Flappy Bird, Asteroids, Brick Breaker, 2048, TicTacToe), or websites with modern CSS styling and full JavaScript logic, saved directly in Downloads and opened in the browser.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "project_name": {
-                        "type": "string",
-                        "description": "Name of the project or game (e.g. 'snake_game', 'flappy_bird', 'space_invaders', 'portfolio')."
-                    },
-                    "html_code": {
-                        "type": "string",
-                        "description": "Complete HTML5 code with clean DOM structure, canvas element, score HUD, start/pause/game-over screens, restart buttons, and mobile/touch control buttons."
-                    },
-                    "css_code": {
-                        "type": "string",
-                        "description": "Complete modern CSS styling with dark/cyberpunk/neon aesthetics, glassmorphic HUD overlays, glowing effects, flexbox/grid centering, and responsive design."
-                    },
-                    "js_code": {
-                        "type": "string",
-                        "description": "Complete JavaScript logic with robust game loop (requestAnimationFrame), explicit canvas.width/height, clear game states (START, PLAYING, PAUSED, GAMEOVER), collision detection, score and high-score tracking in localStorage, particle explosions, Web Audio API sound synthesis (beeps/jumps/explosions), and keyboard+touch controls with event.preventDefault() to prevent page scrolling."
-                    },
-                    "single_file": {
-                        "type": "boolean",
-                        "description": "True to generate a single self-contained .html file in Downloads, False for a separate folder with index.html, style.css, and script.js."
-                    },
-                    "open_in_browser": {
-                        "type": "boolean",
-                        "description": "True to immediately open and run the game/website in the default browser."
-                    }
-                },
-                "required": ["project_name", "html_code"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "create_file",
-            "description": "Creates a file with complete content (e.g. Python scripts, text files, JSON, markdown, HTML/CSS). If an Excel file is requested, ensure file_path ends with .xlsx. Files are saved in the Downloads folder by default.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "file_path": {
-                        "type": "string",
-                        "description": "Path or filename to create in Downloads (e.g. 'game.py', 'data.xlsx', 'test.txt', 'app.js')."
-                    },
-                    "content": {
-                        "type": "string",
-                        "description": "Full text or code content to write inside the file."
-                    },
-                    "open_after": {
-                        "type": "boolean",
-                        "description": "Whether to open the file after creating it."
-                    }
-                },
-                "required": ["file_path", "content"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "create_folder",
-            "description": "Creates a folder or directory structure on the computer (defaults to Downloads folder).",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "folder_path": {
-                        "type": "string",
-                        "description": "The path or name of the folder to create."
-                    }
-                },
-                "required": ["folder_path"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "search_files",
-            "description": "Searches for files or directories by name or pattern on the computer (Desktop, Downloads, Documents, project folder).",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "The filename or search string (e.g. 'invoice', '.pdf', 'main.py')."
-                    },
-                    "root_dir": {
-                        "type": "string",
-                        "description": "Optional root directory to search in."
-                    },
-                    "max_results": {
-                        "type": "integer",
-                        "description": "Maximum number of results to return (default 15)."
-                    }
-                },
-                "required": ["query"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "open_file_or_editor",
-            "description": "Opens a specific file using default system viewer or a code editor like Cursor, VS Code, or Notepad.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "file_path": {
-                        "type": "string",
-                        "description": "The path to the file to open."
-                    },
-                    "editor": {
-                        "type": "string",
-                        "description": "Optional editor: 'cursor', 'code' / 'vscode', or 'notepad'. If empty, opens with default system application."
-                    }
-                },
-                "required": ["file_path"]
-            }
-        }
-    }
-]
-
-# Alias for backwards compatibility
-JARVIS_TOOL_DECLARATIONS = GROQ_TOOL_DECLARATIONS
-
-TOOL_FUNCTION_MAP = {
-    "open_website": open_website,
-    "close_browser_tab": close_browser_tab,
-    "search_and_launch_app": search_and_launch_app,
-    "open_application": open_application,
-    "open_folder": open_folder,
-    "open_whatsapp": open_whatsapp,
-    "play_youtube_video": play_youtube_video,
-    "get_weather": get_weather,
-    "get_time": get_time,
-    "show_google_maps_route": show_google_maps_route,
-    "shutdown_computer": shutdown_computer,
-    "restart_computer": restart_computer,
-    "abort_shutdown": abort_shutdown,
-    "like_current_post": like_current_post,
-    "send_whatsapp_message": send_whatsapp_message,
-    "call_on_whatsapp": call_on_whatsapp,
-    "send_email_compose": send_email_compose,
-    "send_instagram_dm_message": send_instagram_dm_message,
-    "see_and_analyze_screen": see_and_analyze_screen,
-    "scroll_screen": scroll_screen,
-    "click_on_screen": click_on_screen,
-    "search_google": search_google,
-    "set_system_volume": set_system_volume,
-    "get_system_volume": get_system_volume,
-    "take_screenshot": take_screenshot,
-    "press_keyboard_keys": press_keyboard_keys,
-    "type_keyboard_text": type_keyboard_text,
-    "system_action": system_action,
-    "run_terminal_command": run_command_in_terminal,
-    "run_command_in_terminal": run_command_in_terminal,
-    "execute_system_command": execute_system_command,
-    "create_file_or_folder": create_file_or_folder,
-    "create_file": create_file,
-    "create_folder": create_folder,
-    "create_web_project": create_web_project,
-    "search_files": search_files,
-    "open_file_or_editor": open_file_or_editor,
-}
-
 # Windows Application Paths and Aliases
 WINDOWS_APP_ALIASES = {
     "spotify": [r"%APPDATA%\Spotify\Spotify.exe", "spotify"],
@@ -1370,26 +1121,19 @@ def execute_system_command(command: str, working_dir: str = "") -> str:
         return f"Error executing system command: {e}"
 
 
-def _resolve_user_dest(raw_path: str) -> Path:
-    """Resolves a destination path, defaulting relative paths to the user's Downloads directory."""
-    raw = raw_path.strip()
-    expanded = Path(os.path.expandvars(raw))
-    if expanded.is_absolute():
-        return expanded.resolve()
-    downloads_dir = Path.home() / "Downloads"
-    return (downloads_dir / expanded).resolve()
-
-
 def create_file(file_path: str, content: str = "", open_after: bool = False) -> str:
     """
     Creates or overwrites a file with the given text/code content and optional auto-open.
-    Relative paths are saved in the user's Downloads folder.
     """
     raw_path = file_path.strip()
     if not raw_path:
         return "Please specify a file path."
 
-    p = _resolve_user_dest(raw_path)
+    expanded = Path(os.path.expandvars(raw_path))
+    if expanded.is_absolute():
+        p = expanded.resolve()
+    else:
+        p = (Path.cwd() / expanded).resolve()
 
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -1431,11 +1175,12 @@ def create_file(file_path: str, content: str = "", open_after: bool = False) -> 
 
 
 def create_folder(folder_path: str) -> str:
-    """Creates a new directory in the user's Downloads folder (and any necessary parent directories)."""
+    """Creates a new directory (and any necessary parent directories)."""
     raw = folder_path.strip()
     if not raw:
         return "Please specify a folder path."
-    p = _resolve_user_dest(raw)
+    expanded = Path(os.path.expandvars(raw))
+    p = expanded.resolve() if expanded.is_absolute() else (Path.cwd() / expanded).resolve()
     try:
         p.mkdir(parents=True, exist_ok=True)
         return f"Successfully created folder: {p}"
@@ -1460,19 +1205,19 @@ def create_web_project(
     open_in_browser: bool = True
 ) -> str:
     """
-    Creates a complete, playable web application, game, or website directly in the user's Downloads folder.
+    Creates a complete, playable web application, game, or website.
     Can create either a single self-contained .html file or a clean project folder with index.html, style.css, and script.js.
     Automatically launches the generated game/website in the default browser so the user can immediately play/view it.
     """
     clean_name = re.sub(r"[^\w\-]", "_", project_name.strip()) or "web_project"
-    downloads_dir = Path.home() / "Downloads"
-    downloads_dir.mkdir(parents=True, exist_ok=True)
+    projects_dir = Path.cwd() / "projects"
+    projects_dir.mkdir(exist_ok=True)
 
     try:
         if single_file or (not css_code.strip() and not js_code.strip()):
-            # Single self-contained HTML file in Downloads
+            # Single self-contained HTML file
             file_name = f"{clean_name}.html" if not clean_name.endswith(".html") else clean_name
-            target_path = downloads_dir / file_name
+            target_path = projects_dir / file_name
 
             full_html = html_code
             if css_code.strip() and "<style>" not in full_html:
@@ -1481,16 +1226,16 @@ def create_web_project(
                 full_html = full_html.replace("</body>", f"<script>\n{js_code}\n</script>\n</body>") if "</body>" in full_html else full_html + f"\n<script>\n{js_code}\n</script>"
 
             target_path.write_text(full_html, encoding="utf-8")
-            log.info("Created standalone web app/game in Downloads: %s", target_path)
+            log.info("Created standalone web app/game: %s", target_path)
 
             if open_in_browser:
                 webbrowser.open(target_path.as_uri())
 
-            return f"Successfully created web app/game in Downloads: {target_path}. Opened in browser for you to play/view, sir."
+            return f"Successfully created single-file web app/game: {target_path}. Opened in browser for you to play/view, sir."
 
         else:
-            # Multi-file folder with index.html, style.css, script.js inside Downloads
-            proj_folder = downloads_dir / clean_name
+            # Multi-file folder with index.html, style.css, script.js
+            proj_folder = projects_dir / clean_name
             proj_folder.mkdir(parents=True, exist_ok=True)
 
             html_file = proj_folder / "index.html"
@@ -1510,12 +1255,12 @@ def create_web_project(
             if js_code.strip():
                 js_file.write_text(js_code, encoding="utf-8")
 
-            log.info("Created web project in Downloads: %s", proj_folder)
+            log.info("Created web project in %s", proj_folder)
 
             if open_in_browser:
                 webbrowser.open(html_file.as_uri())
 
-            return f"Successfully created web project in Downloads at '{proj_folder}' with index.html, style.css, and script.js. Opened in browser for you, sir."
+            return f"Successfully created web project in '{proj_folder}' with index.html, style.css, and script.js. Opened in browser for you, sir."
 
     except Exception as e:
         log.error("create_web_project error: %s", e)
@@ -1615,7 +1360,7 @@ def open_file_or_editor(file_path: str, editor: str = "") -> str:
         return f"Failed opening file {p}: {e}"
 
 
-
+# ── Groq / OpenAI Standard Tool Declarations ──────────────────────────
 
 GROQ_TOOL_DECLARATIONS = [
     {
@@ -2043,6 +1788,215 @@ GROQ_TOOL_DECLARATIONS = [
     {
         "type": "function",
         "function": {
+            "name": "type_keyboard_text",
+            "description": "Types arbitrary text using the keyboard.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "press_enter": {"type": "boolean"}
+                },
+                "required": ["text"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "system_action",
+            "description": "Executes system actions like lock, sleep, mute, unmute, minimize_all.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "description": "Action to perform."
+                    }
+                },
+                "required": ["action"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_command_in_terminal",
+            "description": "Opens the Windows Terminal via the taskbar search bar and visibly types in the command live on screen so the user can watch it execute.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "The command line string to type and execute in the terminal (e.g. 'dir', 'git status', 'python test.py', 'pip list', 'npm start')."
+                    },
+                    "working_dir": {
+                        "type": "string",
+                        "description": "Optional working directory path."
+                    },
+                    "use_taskbar_search": {
+                        "type": "boolean",
+                        "description": "True to open Terminal using taskbar search and visibly type the command (default True)."
+                    }
+                },
+                "required": ["command"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "execute_system_command",
+            "description": "Runs a command silently in the background and returns stdout and stderr.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "The shell command to execute."
+                    },
+                    "working_dir": {
+                        "type": "string",
+                        "description": "Optional working directory."
+                    }
+                },
+                "required": ["command"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_web_project",
+            "description": "Generates complete, playable web apps, games (like Snake, Pong, TicTacToe, Flappy Bird), or websites with full HTML, modern CSS styling, and JavaScript logic, and automatically opens them in the browser for the user to play.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "project_name": {
+                        "type": "string",
+                        "description": "Name of the game or website (e.g. 'snake_game', 'portfolio_website', 'flappy_bird')."
+                    },
+                    "html_code": {
+                        "type": "string",
+                        "description": "Complete, full HTML5 code (with canvas, DOM layout, controls, UI)."
+                    },
+                    "css_code": {
+                        "type": "string",
+                        "description": "Complete modern CSS code (colors, animations, responsive layout)."
+                    },
+                    "js_code": {
+                        "type": "string",
+                        "description": "Complete JavaScript logic (game loop, event listeners, score, collision, sound, interactions)."
+                    },
+                    "single_file": {
+                        "type": "boolean",
+                        "description": "True to generate a single self-contained .html file, False for separate index.html, style.css, script.js files."
+                    },
+                    "open_in_browser": {
+                        "type": "boolean",
+                        "description": "True to immediately launch in web browser (default True)."
+                    }
+                },
+                "required": ["project_name", "html_code"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_file",
+            "description": "Creates a file with complete content (e.g. Python scripts, text files, JSON, markdown, HTML/CSS).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path or filename to create (e.g. 'game.py', 'test.txt', 'app.js')."
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Full text or code content to write inside the file."
+                    },
+                    "open_after": {
+                        "type": "boolean",
+                        "description": "Whether to open the file after creating it."
+                    }
+                },
+                "required": ["file_path", "content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_folder",
+            "description": "Creates a folder or directory structure on the computer.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "folder_path": {
+                        "type": "string",
+                        "description": "The path or name of the folder to create."
+                    }
+                },
+                "required": ["folder_path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_files",
+            "description": "Searches for files or directories by name or pattern on the computer (Desktop, Downloads, Documents, project folder).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The filename or search string (e.g. 'invoice', '.pdf', 'main.py')."
+                    },
+                    "root_dir": {
+                        "type": "string",
+                        "description": "Optional root directory to search in."
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of results to return (default 15)."
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "open_file_or_editor",
+            "description": "Opens a specific file using default system viewer or a code editor like Cursor, VS Code, or Notepad.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "The path to the file to open."
+                    },
+                    "editor": {
+                        "type": "string",
+                        "description": "Optional editor: 'cursor', 'code' / 'vscode', or 'notepad'. If empty, opens with default system application."
+                    }
+                },
+                "required": ["file_path"]
+            }
+        }
+    }
+]
+
+# Alias for backwards compatibility
+JARVIS_TOOL_DECLARATIONS = GROQ_TOOL_DECLARATIONS
+
+TOOL_FUNCTION_MAP = {
+    "open_website": open_website,
+    "close_browser_tab": close_browser_tab,
+    "search_and_launch_app": search_and_launch_app,
     "open_application": open_application,
     "open_folder": open_folder,
     "open_whatsapp": open_whatsapp,
