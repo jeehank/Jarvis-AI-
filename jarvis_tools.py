@@ -382,10 +382,7 @@ def send_whatsapp_message(contact_or_number: str, message: str, use_app: bool = 
 
 def call_on_whatsapp(contact_or_number: str, video: bool = False) -> str:
     """Opens WhatsApp Desktop, searches for a contact, and initiates a voice or video call.
-
-    Uses WhatsApp Desktop keyboard shortcuts:
-    - Voice call: Ctrl+Shift+C (after opening the chat)
-    - Video call: Ctrl+Shift+V (after opening the chat)
+    Navigates to the chat, maximizes the window, and clicks the Voice/Video Call button in the chat header.
     """
     import threading
 
@@ -411,6 +408,13 @@ def call_on_whatsapp(contact_or_number: str, video: bool = False) -> str:
             # 1. Wait for WhatsApp window to open and take focus
             time.sleep(3.5)
 
+            # Maximize window so header call button coordinates are completely predictable
+            try:
+                pyautogui.hotkey("win", "up")
+                time.sleep(0.5)
+            except Exception:
+                pass
+
             # 2. Focus search bar via Ctrl+F
             pyautogui.hotkey("ctrl", "f")
             time.sleep(0.4)
@@ -426,14 +430,29 @@ def call_on_whatsapp(contact_or_number: str, video: bool = False) -> str:
             pyautogui.press("down")
             time.sleep(0.2)
             pyautogui.press("enter")
-            time.sleep(1.5)
+            time.sleep(1.8)
 
-            # 5. Initiate call using keyboard shortcut
+            # 5. Locate and click the Call button in the top right chat header
+            sw, sh = pyautogui.size()
             if video:
-                # Video call: Ctrl+Shift+V
+                # Video call icon is ~145px from right margin in chat header
+                target_x = max(100, sw - 145)
+                target_y = int(sh * 0.055) if sh > 800 else 58
+            else:
+                # Voice call icon is ~100px from right margin in chat header
+                target_x = max(100, sw - 100)
+                target_y = int(sh * 0.055) if sh > 800 else 58
+
+            log.info("Clicking WhatsApp %s call button at (%d, %d)", call_type, target_x, target_y)
+            pyautogui.moveTo(target_x, target_y, duration=0.3)
+            time.sleep(0.1)
+            pyautogui.click(target_x, target_y)
+            time.sleep(0.3)
+
+            # 6. Also send fallback shortcut
+            if video:
                 pyautogui.hotkey("ctrl", "shift", "v")
             else:
-                # Voice call: Ctrl+Shift+C
                 pyautogui.hotkey("ctrl", "shift", "c")
 
             log.info("Initiated %s call to %s on WhatsApp Desktop.", call_type, contact_clean)
