@@ -258,7 +258,6 @@ class Brain:
             or self._handle_scroll(t)
             or self._handle_file_operations(t)
             or self._handle_terminal(t)
-            or self._handle_opencode(t)
             or self._handle_open(t)
             or self._handle_volume(t)
             or self._handle_screenshot(t)
@@ -470,7 +469,23 @@ class Brain:
         if is_generative_intent(t):
             return False
 
-        # 1. "introduce yourself to [contact] on whatsapp"
+        # 1. WhatsApp Calls: "call [contact] on whatsapp", "whatsapp call [contact]", "make a [video/voice] call to [contact] on whatsapp", "video call [contact] on whatsapp"
+        if "call" in t:
+            is_video = "video" in t
+            call_type = "video" if is_video else "voice"
+            call_m = re.search(
+                r"(?:(?:make\s+a\s+)?(?:whatsapp\s+)?(?:video\s+|voice\s+)?call\s+(?:to\s+)?|whatsapp\s+call\s+)([a-zA-Z0-9_\s+]+?)(?:\s+on\s+whatsapp)?$",
+                t
+            )
+            if call_m:
+                contact = call_m.group(1).strip()
+                if contact:
+                    self.voice.speak(f"Starting a {call_type} call to {contact.capitalize()} on WhatsApp, sir.")
+                    res = TOOL_FUNCTION_MAP["call_on_whatsapp"](contact, video=is_video)
+                    safe_print(f"  JARVIS: {res}")
+                    return True
+
+        # 2. "introduce yourself to [contact] on whatsapp"
         intro_m = re.search(r"introduce\s+(?:yourself|jarvis)\s+to\s+([a-zA-Z0-9_+]+)", t)
         if intro_m:
             contact = intro_m.group(1)
@@ -480,7 +495,7 @@ class Brain:
             safe_print(f"  JARVIS: {res}")
             return True
 
-        # 2. Standard message templates:
+        # 3. Standard message templates:
         m1 = re.search(r"(?:send\s+(?:a\s+)?message\s+to|message|text|tell)\s+([a-zA-Z0-9_+]+)(?:\s+on\s+whatsapp)?\s+(?:saying|that|text)\s+(.+)", t)
         if m1:
             contact, msg = m1.group(1), m1.group(2).strip()
@@ -499,13 +514,13 @@ class Brain:
                 safe_print(f"  JARVIS: {res}")
                 return True
 
-        # 3. Explicit desktop app launch
+        # 4. Explicit desktop app launch
         if re.search(r"\b(desktop\s+app|whatsapp\s+desktop|whatsapp\s+app)\b", t):
             self.voice.speak("Opening WhatsApp Desktop, sir.")
             TOOL_FUNCTION_MAP["open_whatsapp"]("app")
             return True
 
-        # 4. Simple open: "open whatsapp", "launch whatsapp"
+        # 5. Simple open: "open whatsapp", "launch whatsapp"
         if t.strip() in ("open whatsapp", "launch whatsapp", "whatsapp", "open whatsapp web"):
             self.voice.speak("Opening WhatsApp for you, sir.")
             TOOL_FUNCTION_MAP["open_whatsapp"]("web")
@@ -643,17 +658,15 @@ class Brain:
             if trig in t:
                 cmd = re.sub(rf"^.*?\b{trig}\s+", "", t, flags=re.IGNORECASE).strip(" '\"`")
                 if cmd:
-                    self.voice.speak("Executing command in terminal, sir.")
-                    res = TOOL_FUNCTION_MAP["run_terminal_command"](cmd)
+                    self.voice.speak("Opening terminal and typing your command, sir.")
+                    res = TOOL_FUNCTION_MAP["run_command_in_terminal"](cmd)
                     safe_print(f"  JARVIS (Terminal):\n{res}")
-                    first_line = res.strip().split("\n")[0] if res else "Command executed."
-                    self.voice.speak(f"Command executed, sir. {first_line[:80]}")
                     return True
 
         if t.startswith("run ") and any(c in t for c in ("python ", "pip ", "git ", "npm ", "node ", "cargo ", "dir ", "cd ", "echo ")):
             cmd = t[4:].strip(" '\"`")
-            self.voice.speak(f"Running {cmd.split()[0]} in terminal, sir.")
-            res = TOOL_FUNCTION_MAP["run_terminal_command"](cmd)
+            self.voice.speak(f"Opening terminal to run {cmd.split()[0]}, sir.")
+            res = TOOL_FUNCTION_MAP["run_command_in_terminal"](cmd)
             safe_print(f"  JARVIS (Terminal):\n{res}")
             return True
 
@@ -661,13 +674,21 @@ class Brain:
 
     def _handle_file_operations(self, t: str) -> bool:
         """Handles file creation, searching, and opening."""
+        # If user is asking to build/create a game or website, let Groq generate the rich code!
+        web_game_triggers = ("game", "website", "landing page", "calculator", "app", "dashboard", "snake", "pong", "flappy", "tic tac toe", "portfolio")
+        if any(w in t for w in web_game_triggers) and any(a in t for a in ("create", "build", "make", "code", "generate")):
+            return False
+
         # 1. Create file or folder
         create_file_match = re.search(r"(?:create|make)\s+(?:a\s+)?(?:new\s+)?file\s+(?:called\s+|named\s+)?([a-zA-Z0-9_.\-\/\\]+)(?:\s+(?:with|saying|containing)\s+(.+))?", t, flags=re.IGNORECASE)
         if create_file_match:
             fname = create_file_match.group(1).strip()
             content = create_file_match.group(2).strip() if create_file_match.group(2) else ""
+            # If the content implies coding or generative intent, let Groq handle it!
+            if not content or is_generative_intent(content) or is_generative_intent(t):
+                return False
             self.voice.speak(f"Creating file {fname}, sir.")
-            res = TOOL_FUNCTION_MAP["create_file_or_folder"](fname, content, False)
+            res = TOOL_FUNCTION_MAP["create_file"](fname, content, True)
             safe_print(f"  JARVIS: {res}")
             self.voice.speak("File created, sir.")
             return True
@@ -676,7 +697,7 @@ class Brain:
         if create_folder_match:
             folder_name = create_folder_match.group(1).strip()
             self.voice.speak(f"Creating folder {folder_name}, sir.")
-            res = TOOL_FUNCTION_MAP["create_file_or_folder"](folder_name, "", True)
+            res = TOOL_FUNCTION_MAP["create_folder"](folder_name)
             safe_print(f"  JARVIS: {res}")
             self.voice.speak("Folder created, sir.")
             return True
@@ -701,26 +722,6 @@ class Brain:
             res = TOOL_FUNCTION_MAP["open_file_or_editor"](fpath, editor)
             safe_print(f"  JARVIS: {res}")
             return True
-
-        return False
-
-    def _handle_opencode(self, t: str) -> bool:
-        """Handles explicit OpenCode commands or coding delegation."""
-        opencode_triggers = ("opencode", "open code", "ask opencode", "tell opencode", "run opencode")
-        for trig in opencode_triggers:
-            if trig in t:
-                task = re.sub(rf"^.*?\b{trig}\s+(?:to\s+)?", "", t, flags=re.IGNORECASE).strip()
-                if not task:
-                    task = "Start interactive coding assistant session"
-
-                improved_prompt = (
-                    f"You are OpenCode AI. Task: {task}. "
-                    f"Analyze the repository/workspace, plan your implementation, and execute all required code and file changes autonomously."
-                )
-                self.voice.speak("Launching OpenCode in terminal with an improved prompt for your task, sir.")
-                res = TOOL_FUNCTION_MAP["run_opencode_task"](improved_prompt, in_terminal_window=True)
-                safe_print(f"  JARVIS: {res}")
-                return True
 
         return False
 
@@ -970,11 +971,11 @@ def main():
     print("  JARVIS  -  Voice Assistant (Powered by Groq)")
     print("=" * 60)
     print()
-    opencode_status = "Ready (v1.18.25)" if is_opencode_installed() else "Not Installed (run 'npm install -g opencode-ai')"
-    print(f"  [System Capabilities]")
-    print(f"  • Terminal Access:   Enabled (cmd / powershell)")
-    print(f"  • File Operations:   Create, Search, Open")
-    print(f"  • OpenCode AI CLI:   {opencode_status}")
+    print("  [System Capabilities]")
+    print("  • Terminal Access:   Live Typing via Taskbar Search")
+    print("  • File & Folders:    Create, Search, Open")
+    print("  • Web/Game Coding:   Autonomous HTML5/CSS/JS (Instant Play)")
+    print("  • WhatsApp Features: Auto Messaging & Header Call Trigger")
     print()
     print("  Voice Protocol:")
     print("    Start with: 'Jarvis ...'")
@@ -982,13 +983,14 @@ def main():
     print("    Interrupt:  'Jarvis Stop'")
     print()
     print("  Examples:")
-    print("    'Jarvis close YouTube tab over'")
-    print("    'Jarvis create a file called test.py with print hello over'")
-    print("    'Jarvis search for file notes.txt over'")
+    print("    'Jarvis call Debayan on WhatsApp over'")
+    print("    'Jarvis create a snake game over'")
+    print("    'Jarvis build a portfolio website over'")
     print("    'Jarvis run command dir over'")
-    print("    'Jarvis ask opencode to build a snake game in python over'")
+    print("    'Jarvis create a file called notes.txt containing meeting at 5 over'")
     print("    'Jarvis what is the weather in Kolkata over'")
     print("    'Jarvis show route from my location to Durgapur over'")
+    print("    'Jarvis close YouTube tab over'")
     print("    'Jarvis shutdown computer over'")
     print("    'Jarvis stop'")
     print()
