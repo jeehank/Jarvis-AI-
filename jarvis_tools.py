@@ -1794,18 +1794,6 @@ GROQ_TOOL_DECLARATIONS = [
     {
         "type": "function",
         "function": {
-            "name": "type_keyboard_text",
-            "description": "Types arbitrary text using the keyboard.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "text": {"type": "string"},
-JARVIS_TOOL_DECLARATIONS = GROQ_TOOL_DECLARATIONS
-
-TOOL_FUNCTION_MAP = {
-    "open_website": open_website,
-    "close_browser_tab": close_browser_tab,
-    "search_and_launch_app": search_and_launch_app,
     "open_application": open_application,
     "open_folder": open_folder,
     "open_whatsapp": open_whatsapp,
