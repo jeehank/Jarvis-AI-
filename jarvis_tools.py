@@ -1842,52 +1842,6 @@ GROQ_TOOL_DECLARATIONS = [
                     "use_taskbar_search": {
                         "type": "boolean",
                         "description": "True to open Terminal using taskbar search and visibly type the command (default True)."
-                    }
-                },
-                "required": ["command"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "execute_system_command",
-            "description": "Runs a command silently in the background and returns stdout and stderr.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": "The shell command to execute."
-                    },
-                    "working_dir": {
-                        "type": "string",
-                        "description": "Optional working directory."
-            "name": "create_file",
-            "description": "Creates a file with complete content (e.g. Python scripts, text files, JSON, markdown, HTML/CSS).",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "file_path": {
-                        "type": "string",
-                        "description": "Path or filename to create (e.g. 'game.py', 'test.txt', 'app.js')."
-                    },
-                    "content": {
-                        "type": "string",
-                        "description": "Full text or code content to write inside the file."
-                    },
-                    "open_after": {
-                        "type": "boolean",
-                        "description": "Whether to open the file after creating it."
-                    }
-                },
-                "required": ["file_path", "content"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "create_folder",
             "description": "Creates a folder or directory structure on the computer.",
             "parameters": {
