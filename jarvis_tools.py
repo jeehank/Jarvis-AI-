@@ -61,6 +61,255 @@ ACCOUNT_URLS = {
     "notion": "https://www.notion.so",
 }
 
+GROQ_TOOL_DECLARATIONS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "type_keyboard_text",
+            "description": "Types arbitrary text using the keyboard.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "press_enter": {"type": "boolean"}
+                },
+                "required": ["text"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "system_action",
+            "description": "Executes system actions like lock, sleep, mute, unmute, minimize_all.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "description": "Action to perform."
+                    }
+                },
+                "required": ["action"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_command_in_terminal",
+            "description": "Opens the Windows Terminal via the taskbar search bar and visibly types in the command live on screen so the user can watch it execute.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "The command line string to type and execute in the terminal (e.g. 'dir', 'git status', 'python test.py', 'pip list', 'npm start')."
+                    },
+                    "working_dir": {
+                        "type": "string",
+                        "description": "Optional working directory path."
+                    },
+                    "use_taskbar_search": {
+                        "type": "boolean",
+                        "description": "True to open Terminal using taskbar search and visibly type the command (default True)."
+                    }
+                },
+                "required": ["command"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "execute_system_command",
+            "description": "Runs a command silently in the background and returns stdout and stderr.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "The shell command to execute."
+                    },
+                    "working_dir": {
+                        "type": "string",
+                        "description": "Optional working directory."
+                    }
+                },
+                "required": ["command"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_web_project",
+            "description": "Generates complete, bug-free, playable web applications, HTML5 games (e.g. Snake, Pong, Space Invaders, Flappy Bird, Asteroids, Brick Breaker, 2048, TicTacToe), or websites with modern CSS styling and full JavaScript logic, saved directly in Downloads and opened in the browser.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "project_name": {
+                        "type": "string",
+                        "description": "Name of the project or game (e.g. 'snake_game', 'flappy_bird', 'space_invaders', 'portfolio')."
+                    },
+                    "html_code": {
+                        "type": "string",
+                        "description": "Complete HTML5 code with clean DOM structure, canvas element, score HUD, start/pause/game-over screens, restart buttons, and mobile/touch control buttons."
+                    },
+                    "css_code": {
+                        "type": "string",
+                        "description": "Complete modern CSS styling with dark/cyberpunk/neon aesthetics, glassmorphic HUD overlays, glowing effects, flexbox/grid centering, and responsive design."
+                    },
+                    "js_code": {
+                        "type": "string",
+                        "description": "Complete JavaScript logic with robust game loop (requestAnimationFrame), explicit canvas.width/height, clear game states (START, PLAYING, PAUSED, GAMEOVER), collision detection, score and high-score tracking in localStorage, particle explosions, Web Audio API sound synthesis (beeps/jumps/explosions), and keyboard+touch controls with event.preventDefault() to prevent page scrolling."
+                    },
+                    "single_file": {
+                        "type": "boolean",
+                        "description": "True to generate a single self-contained .html file in Downloads, False for a separate folder with index.html, style.css, and script.js."
+                    },
+                    "open_in_browser": {
+                        "type": "boolean",
+                        "description": "True to immediately open and run the game/website in the default browser."
+                    }
+                },
+                "required": ["project_name", "html_code"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_file",
+            "description": "Creates a file with complete content (e.g. Python scripts, text files, JSON, markdown, HTML/CSS). If an Excel file is requested, ensure file_path ends with .xlsx. Files are saved in the Downloads folder by default.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path or filename to create in Downloads (e.g. 'game.py', 'data.xlsx', 'test.txt', 'app.js')."
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Full text or code content to write inside the file."
+                    },
+                    "open_after": {
+                        "type": "boolean",
+                        "description": "Whether to open the file after creating it."
+                    }
+                },
+                "required": ["file_path", "content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_folder",
+            "description": "Creates a folder or directory structure on the computer (defaults to Downloads folder).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "folder_path": {
+                        "type": "string",
+                        "description": "The path or name of the folder to create."
+                    }
+                },
+                "required": ["folder_path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_files",
+            "description": "Searches for files or directories by name or pattern on the computer (Desktop, Downloads, Documents, project folder).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The filename or search string (e.g. 'invoice', '.pdf', 'main.py')."
+                    },
+                    "root_dir": {
+                        "type": "string",
+                        "description": "Optional root directory to search in."
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of results to return (default 15)."
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "open_file_or_editor",
+            "description": "Opens a specific file using default system viewer or a code editor like Cursor, VS Code, or Notepad.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "The path to the file to open."
+                    },
+                    "editor": {
+                        "type": "string",
+                        "description": "Optional editor: 'cursor', 'code' / 'vscode', or 'notepad'. If empty, opens with default system application."
+                    }
+                },
+                "required": ["file_path"]
+            }
+        }
+    }
+]
+
+# Alias for backwards compatibility
+JARVIS_TOOL_DECLARATIONS = GROQ_TOOL_DECLARATIONS
+
+TOOL_FUNCTION_MAP = {
+    "open_website": open_website,
+    "close_browser_tab": close_browser_tab,
+    "search_and_launch_app": search_and_launch_app,
+    "open_application": open_application,
+    "open_folder": open_folder,
+    "open_whatsapp": open_whatsapp,
+    "play_youtube_video": play_youtube_video,
+    "get_weather": get_weather,
+    "get_time": get_time,
+    "show_google_maps_route": show_google_maps_route,
+    "shutdown_computer": shutdown_computer,
+    "restart_computer": restart_computer,
+    "abort_shutdown": abort_shutdown,
+    "like_current_post": like_current_post,
+    "send_whatsapp_message": send_whatsapp_message,
+    "call_on_whatsapp": call_on_whatsapp,
+    "send_email_compose": send_email_compose,
+    "send_instagram_dm_message": send_instagram_dm_message,
+    "see_and_analyze_screen": see_and_analyze_screen,
+    "scroll_screen": scroll_screen,
+    "click_on_screen": click_on_screen,
+    "search_google": search_google,
+    "set_system_volume": set_system_volume,
+    "get_system_volume": get_system_volume,
+    "take_screenshot": take_screenshot,
+    "press_keyboard_keys": press_keyboard_keys,
+    "type_keyboard_text": type_keyboard_text,
+    "system_action": system_action,
+    "run_terminal_command": run_command_in_terminal,
+    "run_command_in_terminal": run_command_in_terminal,
+    "execute_system_command": execute_system_command,
+    "create_file_or_folder": create_file_or_folder,
+    "create_file": create_file,
+    "create_folder": create_folder,
+    "create_web_project": create_web_project,
+    "search_files": search_files,
+    "open_file_or_editor": open_file_or_editor,
+}
+
 # Windows Application Paths and Aliases
 WINDOWS_APP_ALIASES = {
     "spotify": [r"%APPDATA%\Spotify\Spotify.exe", "spotify"],
@@ -1366,7 +1615,7 @@ def open_file_or_editor(file_path: str, editor: str = "") -> str:
         return f"Failed opening file {p}: {e}"
 
 
-# ── Groq / OpenAI Standard Tool Declarations ──────────────────────────
+
 
 GROQ_TOOL_DECLARATIONS = [
     {
