@@ -996,52 +996,11 @@ def interruptible_sleep(seconds: float, interrupt_event: Optional[threading.Even
     return not interrupt_event.is_set()
 
 
-def is_opencode_installed() -> bool:
-    """Checks if the OpenCode CLI is installed and accessible on the system."""
-    if shutil.which("opencode.cmd") or shutil.which("opencode"):
-        return True
-    app_data = os.environ.get("APPDATA", "")
-    if app_data and (Path(app_data) / "npm" / "opencode.cmd").exists():
-        return True
-    return False
-
-
-def get_opencode_executable() -> str:
-    """Returns the command or absolute path to invoke opencode on Windows."""
-    found = shutil.which("opencode.cmd") or shutil.which("opencode")
-    if found:
-        return found
-    app_data = os.environ.get("APPDATA", "")
-    if app_data:
-        p = Path(app_data) / "npm" / "opencode.cmd"
-        if p.exists():
-            return str(p)
-    return "opencode.cmd"
-
-
-def ensure_opencode_installed() -> str:
-    """Checks if OpenCode CLI is installed; if not, attempts installation via npm."""
-    if is_opencode_installed():
-        return "OpenCode CLI is already installed and ready."
-
-    npm_exec = shutil.which("npm.cmd") or shutil.which("npm")
-    if npm_exec:
-        try:
-            log.info("Attempting auto-install of opencode-ai via npm...")
-            res = subprocess.run(["cmd.exe", "/c", "npm.cmd", "install", "-g", "opencode-ai"], capture_output=True, text=True, timeout=120)
-            if res.returncode == 0 and is_opencode_installed():
-                return "Successfully installed OpenCode CLI (opencode-ai) via npm."
-            return f"Attempted npm install. Output: {res.stdout} {res.stderr}"
-        except Exception as e:
-            return f"Failed auto-install: {e}. Please run 'npm install -g opencode-ai' manually."
-    return "npm not found. Please install Node.js and run 'npm install -g opencode-ai' to enable OpenCode."
-
-
-def run_terminal_command(command: str, working_dir: str = "", run_in_window: bool = False) -> str:
+def run_command_in_terminal(command: str, working_dir: str = "", use_taskbar_search: bool = True) -> str:
     """
-    Executes a shell/terminal command on the computer (cmd/powershell).
-    If run_in_window is True, opens a visible terminal window running the command.
-    Otherwise, captures stdout/stderr and returns the output.
+    Executes a shell/terminal command on the computer.
+    Opens the Windows Terminal app using the taskbar search bar and types the command visibly
+    character-by-character so the user can watch JARVIS typing and executing it live on screen.
     """
     cmd_clean = command.strip()
     if not cmd_clean:
@@ -1055,23 +1014,47 @@ def run_terminal_command(command: str, working_dir: str = "", run_in_window: boo
     except Exception:
         cwd_path = Path.cwd()
 
-    log.info("Executing terminal command: %r in %s (window=%s)", cmd_clean, cwd_path, run_in_window)
+    log.info("Executing terminal command: %r in %s (via_search=%s)", cmd_clean, cwd_path, use_taskbar_search)
 
-    if run_in_window:
-        try:
-            if sys.platform == "win32":
-                subprocess.Popen(
-                    f'start cmd.exe /k "cd /d "{cwd_path}" && {cmd_clean}"',
-                    shell=True
-                )
-                return f"Launched terminal window executing: '{cmd_clean}' in {cwd_path}"
-            else:
-                subprocess.Popen(["x-terminal-emulator", "-e", cmd_clean], cwd=str(cwd_path))
-                return f"Launched terminal executing: '{cmd_clean}'"
-        except Exception as e:
-            log.error("Failed launching terminal window: %s", e)
-            return f"Failed to launch terminal window: {e}"
+    if use_taskbar_search and sys.platform == "win32":
+        import threading
+        def _type_in_terminal():
+            try:
+                # 1. Open taskbar searchbar using Win key
+                pyautogui.press("win")
+                time.sleep(0.4)
 
+                # 2. Type 'terminal' to search for Windows Terminal
+                pyautogui.write("terminal", interval=0.03)
+                time.sleep(0.6)
+                pyautogui.press("enter")
+                time.sleep(2.0)
+
+                # 3. If working directory is specified and different, cd into it
+                if str(cwd_path) != str(Path.cwd()):
+                    cd_cmd = f'cd /d "{cwd_path}"'
+                    for char in cd_cmd:
+                        pyautogui.write(char)
+                        time.sleep(0.015)
+                    pyautogui.press("enter")
+                    time.sleep(0.3)
+
+                # 4. Type the command visibly into the terminal
+                for char in cmd_clean:
+                    pyautogui.write(char)
+                    time.sleep(0.02)
+                time.sleep(0.3)
+
+                # 5. Execute with Enter
+                pyautogui.press("enter")
+                log.info("Typed and executed in terminal: %r", cmd_clean)
+            except Exception as e:
+                log.error("Error typing command into terminal: %s", e)
+
+        threading.Thread(target=_type_in_terminal, daemon=True).start()
+        return f"Opened Terminal via taskbar search and executed: '{cmd_clean}' in {cwd_path}"
+
+    # Fallback to subprocess execution
     try:
         res = subprocess.run(
             cmd_clean,
@@ -1095,39 +1078,173 @@ def run_terminal_command(command: str, working_dir: str = "", run_in_window: boo
         elif len(output_str) > 1500:
             output_str = output_str[:1500] + "\n...[output truncated]"
         return output_str
-    except subprocess.TimeoutExpired:
-        return "Terminal command timed out after 45 seconds."
     except Exception as e:
-        log.error("run_terminal_command error: %s", e)
-        return f"Error executing terminal command: {e}"
+        return f"Error executing command: {e}"
 
 
-def create_file_or_folder(path: str, content: str = "", is_folder: bool = False) -> str:
-    """Creates a new file (with specified content) or directory at the given path.
-    Non-absolute paths are resolved relative to the user's Downloads folder.
+def execute_system_command(command: str, working_dir: str = "") -> str:
     """
-    target_raw = path.strip()
-    if not target_raw:
-        return "Please specify a file or folder path."
+    Executes a shell command silently in the background and returns the complete output/logs.
+    """
+    cmd_clean = command.strip()
+    if not cmd_clean:
+        return "No command provided."
 
-    expanded = Path(os.path.expandvars(target_raw))
+    cwd = working_dir.strip() if working_dir.strip() else os.getcwd()
+    try:
+        cwd_path = Path(os.path.expandvars(cwd)).resolve()
+        if not cwd_path.exists():
+            cwd_path = Path.cwd()
+    except Exception:
+        cwd_path = Path.cwd()
+
+    try:
+        res = subprocess.run(
+            cmd_clean,
+            shell=True,
+            cwd=str(cwd_path),
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+        out = res.stdout.strip()
+        err = res.stderr.strip()
+        combined = []
+        if out:
+            combined.append(out)
+        if err:
+            combined.append(f"Errors/Warnings:\n{err}")
+        return "\n".join(combined).strip() or "Command completed with no output."
+    except subprocess.TimeoutExpired:
+        return "Command timed out after 60 seconds."
+    except Exception as e:
+        return f"Error executing system command: {e}"
+
+
+def create_file(file_path: str, content: str = "", open_after: bool = False) -> str:
+    """
+    Creates or overwrites a file with the given text/code content and optional auto-open.
+    """
+    raw_path = file_path.strip()
+    if not raw_path:
+        return "Please specify a file path."
+
+    expanded = Path(os.path.expandvars(raw_path))
     if expanded.is_absolute():
         p = expanded.resolve()
     else:
-        # Default to user's Downloads folder for relative paths
-        downloads_dir = Path.home() / "Downloads"
-        p = (downloads_dir / expanded).resolve()
+        p = (Path.cwd() / expanded).resolve()
+
     try:
-        if is_folder or (not p.suffix and not content):
-            p.mkdir(parents=True, exist_ok=True)
-            return f"Successfully created folder: {p}"
-        else:
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(content, encoding="utf-8")
-            return f"Successfully created file: {p} ({len(content)} characters written)."
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+        msg = f"Successfully created file: {p} ({len(content)} characters written)."
+        if open_after:
+            try:
+                if p.suffix.lower() in (".html", ".htm"):
+                    webbrowser.open(p.as_uri())
+                elif sys.platform == "win32":
+                    os.startfile(str(p))
+                msg += " Opened in viewer/browser."
+            except Exception as e:
+                log.warning("Could not auto-open %s: %s", p, e)
+        return msg
     except Exception as e:
-        log.error("create_file_or_folder error: %s", e)
-        return f"Failed to create {'folder' if is_folder else 'file'} at {p}: {e}"
+        log.error("create_file error: %s", e)
+        return f"Failed to create file at {p}: {e}"
+
+
+def create_folder(folder_path: str) -> str:
+    """Creates a new directory (and any necessary parent directories)."""
+    raw = folder_path.strip()
+    if not raw:
+        return "Please specify a folder path."
+    expanded = Path(os.path.expandvars(raw))
+    p = expanded.resolve() if expanded.is_absolute() else (Path.cwd() / expanded).resolve()
+    try:
+        p.mkdir(parents=True, exist_ok=True)
+        return f"Successfully created folder: {p}"
+    except Exception as e:
+        log.error("create_folder error: %s", e)
+        return f"Failed to create folder at {p}: {e}"
+
+
+def create_file_or_folder(path: str, content: str = "", is_folder: bool = False) -> str:
+    """Legacy alias: Creates a new file (with specified content) or directory."""
+    if is_folder or (not Path(path).suffix and not content):
+        return create_folder(path)
+    return create_file(path, content)
+
+
+def create_web_project(
+    project_name: str,
+    html_code: str,
+    css_code: str = "",
+    js_code: str = "",
+    single_file: bool = False,
+    open_in_browser: bool = True
+) -> str:
+    """
+    Creates a complete, playable web application, game, or website.
+    Can create either a single self-contained .html file or a clean project folder with index.html, style.css, and script.js.
+    Automatically launches the generated game/website in the default browser so the user can immediately play/view it.
+    """
+    clean_name = re.sub(r"[^\w\-]", "_", project_name.strip()) or "web_project"
+    projects_dir = Path.cwd() / "projects"
+    projects_dir.mkdir(exist_ok=True)
+
+    try:
+        if single_file or (not css_code.strip() and not js_code.strip()):
+            # Single self-contained HTML file
+            file_name = f"{clean_name}.html" if not clean_name.endswith(".html") else clean_name
+            target_path = projects_dir / file_name
+
+            full_html = html_code
+            if css_code.strip() and "<style>" not in full_html:
+                full_html = full_html.replace("</head>", f"<style>\n{css_code}\n</style>\n</head>") if "</head>" in full_html else f"<style>\n{css_code}\n</style>\n" + full_html
+            if js_code.strip() and "<script>" not in full_html:
+                full_html = full_html.replace("</body>", f"<script>\n{js_code}\n</script>\n</body>") if "</body>" in full_html else full_html + f"\n<script>\n{js_code}\n</script>"
+
+            target_path.write_text(full_html, encoding="utf-8")
+            log.info("Created standalone web app/game: %s", target_path)
+
+            if open_in_browser:
+                webbrowser.open(target_path.as_uri())
+
+            return f"Successfully created single-file web app/game: {target_path}. Opened in browser for you to play/view, sir."
+
+        else:
+            # Multi-file folder with index.html, style.css, script.js
+            proj_folder = projects_dir / clean_name
+            proj_folder.mkdir(parents=True, exist_ok=True)
+
+            html_file = proj_folder / "index.html"
+            css_file = proj_folder / "style.css"
+            js_file = proj_folder / "script.js"
+
+            # Ensure HTML links to style.css and script.js if not already present
+            processed_html = html_code
+            if "style.css" not in processed_html and "</head>" in processed_html:
+                processed_html = processed_html.replace("</head>", '<link rel="stylesheet" href="style.css">\n</head>')
+            if "script.js" not in processed_html and "</body>" in processed_html:
+                processed_html = processed_html.replace("</body>", '<script src="script.js"></script>\n</body>')
+
+            html_file.write_text(processed_html, encoding="utf-8")
+            if css_code.strip():
+                css_file.write_text(css_code, encoding="utf-8")
+            if js_code.strip():
+                js_file.write_text(js_code, encoding="utf-8")
+
+            log.info("Created web project in %s", proj_folder)
+
+            if open_in_browser:
+                webbrowser.open(html_file.as_uri())
+
+            return f"Successfully created web project in '{proj_folder}' with index.html, style.css, and script.js. Opened in browser for you, sir."
+
+    except Exception as e:
+        log.error("create_web_project error: %s", e)
+        return f"Failed creating web project '{project_name}': {e}"
 
 
 def search_files(query: str, root_dir: str = "", max_results: int = 15) -> str:
@@ -1223,65 +1340,6 @@ def open_file_or_editor(file_path: str, editor: str = "") -> str:
         return f"Failed opening file {p}: {e}"
 
 
-def run_opencode_task(prompt: str, working_dir: str = "", in_terminal_window: bool = True) -> str:
-    """
-    Executes an autonomous coding, debugging, or system task using the OpenCode CLI (opencode.cmd).
-    Takes a detailed, enhanced prompt and launches OpenCode in a visible terminal window
-    or runs headlessly and returns the output.
-    """
-    p_clean = prompt.strip()
-    if not p_clean:
-        return "Please provide a task prompt for OpenCode."
-
-    if not is_opencode_installed():
-        install_res = ensure_opencode_installed()
-        if not is_opencode_installed():
-            return f"OpenCode CLI is not installed: {install_res}. Please install via 'npm install -g opencode-ai'."
-
-    opencode_bin = get_opencode_executable()
-    cwd = working_dir.strip() if working_dir.strip() else os.getcwd()
-    try:
-        cwd_path = Path(os.path.expandvars(cwd)).resolve()
-        if not cwd_path.exists():
-            cwd_path = Path.cwd()
-    except Exception:
-        cwd_path = Path.cwd()
-
-    log.info("Launching OpenCode task: %r in %s (window=%s)", p_clean[:80], cwd_path, in_terminal_window)
-
-    if in_terminal_window and sys.platform == "win32":
-        try:
-            # Escape internal quotes for cmd.exe start
-            safe_prompt = p_clean.replace('"', '\\"')
-            cmd_line = f'start cmd.exe /k "cd /d "{cwd_path}" && "{opencode_bin}" run --auto "{safe_prompt}""'
-            subprocess.Popen(cmd_line, shell=True)
-            return f"Opened terminal and launched OpenCode with prompt: '{p_clean[:100]}...' (Working Directory: {cwd_path})"
-        except Exception as e:
-            log.error("Failed opening OpenCode terminal: %s", e)
-            return f"Failed to launch OpenCode terminal: {e}"
-
-    # Headless execution
-    try:
-        res = subprocess.run(
-            ["cmd.exe", "/c", opencode_bin, "run", "--auto", p_clean],
-            cwd=str(cwd_path),
-            capture_output=True,
-            text=True,
-            timeout=180
-        )
-        out = res.stdout.strip()
-        err = res.stderr.strip()
-        result_text = out or err or "OpenCode task completed."
-        if len(result_text) > 1500:
-            result_text = result_text[:1500] + "\n...[output truncated]"
-        return f"OpenCode Execution Result:\n{result_text}"
-    except subprocess.TimeoutExpired:
-        return "OpenCode task timed out after 180 seconds."
-    except Exception as e:
-        log.error("run_opencode_task error: %s", e)
-        return f"Error executing OpenCode task: {e}"
-
-
 # ── Groq / OpenAI Standard Tool Declarations ──────────────────────────
 
 GROQ_TOOL_DECLARATIONS = [
@@ -1373,17 +1431,33 @@ GROQ_TOOL_DECLARATIONS = [
     {
         "type": "function",
         "function": {
-            "name": "play_youtube_video",
-            "description": "Directly searches, opens, and starts playing a specific song, music track, or video on YouTube.",
+            "name": "open_whatsapp",
+            "description": "Opens WhatsApp Desktop App or WhatsApp Web in the default browser.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "query": {
+                    "mode": {
                         "type": "string",
-                        "description": "The song title, artist, or video search query (e.g. 'Let It Happen Tame Impala')."
+                        "description": "'app' for native desktop app, 'web' for WhatsApp Web."
+                    }
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "play_youtube_video",
+            "description": "Searches YouTube for a song, music video, or topic and starts playing the top result automatically.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "search_query": {
+                        "type": "string",
+                        "description": "Song name, artist, or video title to search and play."
                     }
                 },
-                "required": ["query"]
+                "required": ["search_query"]
             }
         }
     },
@@ -1391,13 +1465,13 @@ GROQ_TOOL_DECLARATIONS = [
         "type": "function",
         "function": {
             "name": "get_weather",
-            "description": "Gets the real-time weather report, temperature, humidity, wind, and forecast for Kolkata, West Bengal, India (or specified location).",
+            "description": "Gets the current live weather report and temperature for any city.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "location": {
                         "type": "string",
-                        "description": "The city or location name (default: 'Kolkata, West Bengal, India')."
+                        "description": "City name, e.g. 'Kolkata, West Bengal, India' or 'London'."
                     }
                 }
             }
@@ -1407,13 +1481,13 @@ GROQ_TOOL_DECLARATIONS = [
         "type": "function",
         "function": {
             "name": "get_time",
-            "description": "Gets the current time (12-hour format) and full date in Indian Standard Time (IST) for Kolkata, West Bengal, India.",
+            "description": "Gets current time and date for a location.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "location": {
                         "type": "string",
-                        "description": "The city or region name (default: 'Kolkata, West Bengal, India')."
+                        "description": "City or timezone, default 'Kolkata, West Bengal, India'."
                     }
                 }
             }
@@ -1423,17 +1497,17 @@ GROQ_TOOL_DECLARATIONS = [
         "type": "function",
         "function": {
             "name": "show_google_maps_route",
-            "description": "Opens Google Maps with full turn-by-turn route directions pre-filled from the user's location (Kolkata) to a destination.",
+            "description": "Opens Google Maps showing driving/transit route directions from origin to destination.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "destination": {
                         "type": "string",
-                        "description": "The destination city, place, or landmark, e.g. 'Durgapur', 'Howrah Station', 'Airport'."
+                        "description": "Destination city, address, or landmark (e.g. 'Durgapur')."
                     },
                     "origin": {
                         "type": "string",
-                        "description": "The starting point (default: 'Kolkata, West Bengal')."
+                        "description": "Starting location (default 'Kolkata, West Bengal')."
                     }
                 },
                 "required": ["destination"]
@@ -1444,17 +1518,13 @@ GROQ_TOOL_DECLARATIONS = [
         "type": "function",
         "function": {
             "name": "shutdown_computer",
-            "description": "Safely shuts down the user's Windows computer.",
+            "description": "Initiates computer shutdown with countdown.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "delay_seconds": {
                         "type": "integer",
                         "description": "Seconds before shutdown (default 5)."
-                    },
-                    "force": {
-                        "type": "boolean",
-                        "description": "Whether to force close applications."
                     }
                 }
             }
@@ -1464,17 +1534,13 @@ GROQ_TOOL_DECLARATIONS = [
         "type": "function",
         "function": {
             "name": "restart_computer",
-            "description": "Safely restarts / reboots the user's Windows computer.",
+            "description": "Initiates computer restart.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "delay_seconds": {
                         "type": "integer",
-                        "description": "Seconds before reboot (default 5)."
-                    },
-                    "force": {
-                        "type": "boolean",
-                        "description": "Whether to force close applications."
+                        "description": "Seconds before restart (default 5)."
                     }
                 }
             }
@@ -1484,7 +1550,7 @@ GROQ_TOOL_DECLARATIONS = [
         "type": "function",
         "function": {
             "name": "abort_shutdown",
-            "description": "Aborts any pending scheduled shutdown or restart.",
+            "description": "Cancels any pending shutdown or restart.",
             "parameters": {
                 "type": "object",
                 "properties": {}
@@ -1495,13 +1561,13 @@ GROQ_TOOL_DECLARATIONS = [
         "type": "function",
         "function": {
             "name": "like_current_post",
-            "description": "Likes the active post, reel, photo, or video currently visible on screen (on Instagram, Twitter/X, YouTube).",
+            "description": "Likes the active post/reel on screen.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "platform": {
                         "type": "string",
-                        "description": "The platform name, e.g. 'instagram', 'x', 'youtube'."
+                        "description": "Social platform, e.g. 'instagram'."
                     }
                 }
             }
@@ -1511,17 +1577,21 @@ GROQ_TOOL_DECLARATIONS = [
         "type": "function",
         "function": {
             "name": "send_whatsapp_message",
-            "description": "Opens WhatsApp and starts a chat or prepares a message for a specific contact or phone number.",
+            "description": "Searches for a contact or group on WhatsApp and sends a message.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "contact_or_number": {
                         "type": "string",
-                        "description": "The contact name or phone number."
+                        "description": "Contact name, group name ('BLACKBIRD FLY'), or phone number."
                     },
                     "message": {
                         "type": "string",
-                        "description": "The message text to send."
+                        "description": "The message to send."
+                    },
+                    "use_app": {
+                        "type": "boolean",
+                        "description": "True to use Desktop App, False for WhatsApp Web."
                     }
                 },
                 "required": ["contact_or_number", "message"]
@@ -1532,17 +1602,17 @@ GROQ_TOOL_DECLARATIONS = [
         "type": "function",
         "function": {
             "name": "call_on_whatsapp",
-            "description": "Opens WhatsApp Desktop and initiates a voice or video call to a specific contact.",
+            "description": "Opens WhatsApp Desktop, searches for a contact, and initiates a voice or video call by clicking the call button in the chat header.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "contact_or_number": {
                         "type": "string",
-                        "description": "The contact name or phone number to call."
+                        "description": "Contact name or phone number."
                     },
                     "video": {
                         "type": "boolean",
-                        "description": "If true, starts a video call. If false (default), starts a voice call."
+                        "description": "Set to true for a video call, false for a voice call."
                     }
                 },
                 "required": ["contact_or_number"]
@@ -1553,22 +1623,13 @@ GROQ_TOOL_DECLARATIONS = [
         "type": "function",
         "function": {
             "name": "send_email_compose",
-            "description": "Opens Gmail compose draft with recipient, subject line, and body message pre-filled.",
+            "description": "Opens Gmail compose window with recipient, subject, and body pre-filled.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "recipient": {
-                        "type": "string",
-                        "description": "The recipient email address or name."
-                    },
-                    "subject": {
-                        "type": "string",
-                        "description": "The email subject line."
-                    },
-                    "body": {
-                        "type": "string",
-                        "description": "The email body text."
-                    }
+                    "recipient": {"type": "string"},
+                    "subject": {"type": "string"},
+                    "body": {"type": "string"}
                 }
             }
         }
@@ -1576,21 +1637,21 @@ GROQ_TOOL_DECLARATIONS = [
     {
         "type": "function",
         "function": {
-            "name": "send_instagram_dm",
-            "description": "Opens Instagram Direct Message chat with a specific user.",
+            "name": "send_instagram_dm_message",
+            "description": "Sends a direct message on Instagram.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "username": {
+                    "contact": {
                         "type": "string",
-                        "description": "The Instagram username without @."
+                        "description": "Instagram contact name/username."
                     },
                     "message": {
                         "type": "string",
-                        "description": "Optional message text."
+                        "description": "The message to send."
                     }
                 },
-                "required": ["username"]
+                "required": ["contact", "message"]
             }
         }
     },
@@ -1598,35 +1659,11 @@ GROQ_TOOL_DECLARATIONS = [
         "type": "function",
         "function": {
             "name": "see_and_analyze_screen",
-            "description": "Looks at the active computer screen and focused window to inspect state or read content.",
+            "description": "Takes a screenshot and analyzes the current screen visually.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "question_or_instruction": {
-                        "type": "string",
-                        "description": "What to look for or analyze on screen."
-                    }
-                },
-                "required": ["question_or_instruction"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "scroll_screen",
-            "description": "Scrolls the active window up or down (useful for feeds, Instagram, articles).",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "direction": {
-                        "type": "string",
-                        "description": "'up' or 'down'."
-                    },
-                    "amount": {
-                        "type": "integer",
-                        "description": "How much to scroll (default 5)."
-                    }
+                    "instruction": {"type": "string"}
                 }
             }
         }
@@ -1634,15 +1671,43 @@ GROQ_TOOL_DECLARATIONS = [
     {
         "type": "function",
         "function": {
-            "name": "search_google",
-            "description": "Searches Google for real-time information or questions.",
+            "name": "scroll_screen",
+            "description": "Scrolls the screen up or down.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "The search query to look up on Google."
-                    }
+                    "direction": {"type": "string", "enum": ["up", "down"]},
+                    "amount": {"type": "integer"}
+                },
+                "required": ["direction"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "click_on_screen",
+            "description": "Clicks at specific screen coordinates or performs double/right click.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "x": {"type": "integer"},
+                    "y": {"type": "integer"},
+                    "button": {"type": "string", "enum": ["left", "right", "double"]}
+                },
+                "required": ["x", "y"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_google",
+            "description": "Searches Google in the browser for any query.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"}
                 },
                 "required": ["query"]
             }
@@ -1652,16 +1717,13 @@ GROQ_TOOL_DECLARATIONS = [
         "type": "function",
         "function": {
             "name": "set_system_volume",
-            "description": "Sets the computer master audio volume level as a percentage from 0 to 100.",
+            "description": "Sets master system volume (0-100).",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "level_percent": {
-                        "type": "integer",
-                        "description": "Volume level percentage between 0 and 100."
-                    }
+                    "level": {"type": "integer"}
                 },
-                "required": ["level_percent"]
+                "required": ["level"]
             }
         }
     },
@@ -1669,25 +1731,19 @@ GROQ_TOOL_DECLARATIONS = [
         "type": "function",
         "function": {
             "name": "get_system_volume",
-            "description": "Queries the current master audio volume level percentage.",
-            "parameters": {
-                "type": "object",
-                "properties": {}
-            }
+            "description": "Gets current master system volume.",
+            "parameters": {"type": "object", "properties": {}}
         }
     },
     {
         "type": "function",
         "function": {
             "name": "take_screenshot",
-            "description": "Takes a screenshot of the user's computer screen and saves it.",
+            "description": "Takes a screenshot and saves it to disk.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "filename": {
-                        "type": "string",
-                        "description": "Optional name for the screenshot file."
-                    }
+                    "save_path": {"type": "string"}
                 }
             }
         }
@@ -1696,16 +1752,16 @@ GROQ_TOOL_DECLARATIONS = [
         "type": "function",
         "function": {
             "name": "press_keyboard_keys",
-            "description": "Presses keyboard keys or key combinations (e.g. 'ctrl+c', 'ctrl+v', 'alt+tab', 'enter', 'space', 'esc', 'win+d').",
+            "description": "Presses a keyboard key combination (e.g. 'ctrl+c', 'alt+tab', 'enter').",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "hotkey": {
-                        "type": "string",
-                        "description": "The key or combination to press, e.g. 'enter', 'ctrl+w', 'alt+tab', 'win+d'."
+                    "keys": {
+                        "type": "array",
+                        "items": {"type": "string"}
                     }
                 },
-                "required": ["hotkey"]
+                "required": ["keys"]
             }
         }
     },
@@ -1713,18 +1769,12 @@ GROQ_TOOL_DECLARATIONS = [
         "type": "function",
         "function": {
             "name": "type_keyboard_text",
-            "description": "Types arbitrary text on the keyboard into the currently focused window.",
+            "description": "Types arbitrary text using the keyboard.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "text": {
-                        "type": "string",
-                        "description": "The text to type."
-                    },
-                    "press_enter": {
-                        "type": "boolean",
-                        "description": "Whether to press Enter after typing."
-                    }
+                    "text": {"type": "string"},
+                    "press_enter": {"type": "boolean"}
                 },
                 "required": ["text"]
             }
@@ -1734,13 +1784,13 @@ GROQ_TOOL_DECLARATIONS = [
         "type": "function",
         "function": {
             "name": "system_action",
-            "description": "Performs system level operations like shutdown, restart, locking the computer, minimizing all windows, or muting sound.",
+            "description": "Executes system actions like lock, sleep, mute, unmute, minimize_all.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "description": "One of: 'turn_on', 'sleep', 'lock', 'minimize_all', 'mute', 'unmute', 'toggle_mute', 'shutdown', 'restart', 'abort_shutdown'."
+                        "description": "Action to perform."
                     }
                 },
                 "required": ["action"]
@@ -1750,22 +1800,22 @@ GROQ_TOOL_DECLARATIONS = [
     {
         "type": "function",
         "function": {
-            "name": "run_terminal_command",
-            "description": "Executes shell commands in Windows terminal / Command Prompt (CMD or PowerShell) and returns output, or opens an interactive terminal window.",
+            "name": "run_command_in_terminal",
+            "description": "Opens the Windows Terminal via the taskbar search bar and visibly types in the command live on screen so the user can watch it execute.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "command": {
                         "type": "string",
-                        "description": "The command line string to run (e.g. 'dir', 'git status', 'python test.py', 'pip list')."
+                        "description": "The command line string to type and execute in the terminal (e.g. 'dir', 'git status', 'python test.py', 'pip list', 'npm start')."
                     },
                     "working_dir": {
                         "type": "string",
-                        "description": "Optional working directory path (defaults to current directory)."
+                        "description": "Optional working directory path."
                     },
-                    "run_in_window": {
+                    "use_taskbar_search": {
                         "type": "boolean",
-                        "description": "Whether to launch the command in a visible new terminal window (default false)."
+                        "description": "True to open Terminal using taskbar search and visibly type the command (default True)."
                     }
                 },
                 "required": ["command"]
@@ -1775,25 +1825,100 @@ GROQ_TOOL_DECLARATIONS = [
     {
         "type": "function",
         "function": {
-            "name": "create_file_or_folder",
-            "description": "Creates a new file (with specified content) or creates a folder on the computer.",
+            "name": "execute_system_command",
+            "description": "Runs a command silently in the background and returns stdout and stderr.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "path": {
+                    "command": {
                         "type": "string",
-                        "description": "The file or folder path to create (e.g. 'app.py', 'src/utils.js', 'my_notes.txt')."
+                        "description": "The shell command to execute."
+                    },
+                    "working_dir": {
+                        "type": "string",
+                        "description": "Optional working directory."
+                    }
+                },
+                "required": ["command"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_web_project",
+            "description": "Generates complete, playable web apps, games (like Snake, Pong, TicTacToe, Flappy Bird), or websites with full HTML, modern CSS styling, and JavaScript logic, and automatically opens them in the browser for the user to play.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "project_name": {
+                        "type": "string",
+                        "description": "Name of the game or website (e.g. 'snake_game', 'portfolio_website', 'flappy_bird')."
+                    },
+                    "html_code": {
+                        "type": "string",
+                        "description": "Complete, full HTML5 code (with canvas, DOM layout, controls, UI)."
+                    },
+                    "css_code": {
+                        "type": "string",
+                        "description": "Complete modern CSS code (colors, animations, responsive layout)."
+                    },
+                    "js_code": {
+                        "type": "string",
+                        "description": "Complete JavaScript logic (game loop, event listeners, score, collision, sound, interactions)."
+                    },
+                    "single_file": {
+                        "type": "boolean",
+                        "description": "True to generate a single self-contained .html file, False for separate index.html, style.css, script.js files."
+                    },
+                    "open_in_browser": {
+                        "type": "boolean",
+                        "description": "True to immediately launch in web browser (default True)."
+                    }
+                },
+                "required": ["project_name", "html_code"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_file",
+            "description": "Creates a file with complete content (e.g. Python scripts, text files, JSON, markdown, HTML/CSS).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path or filename to create (e.g. 'game.py', 'test.txt', 'app.js')."
                     },
                     "content": {
                         "type": "string",
-                        "description": "The text or code content to write inside the file (optional)."
+                        "description": "Full text or code content to write inside the file."
                     },
-                    "is_folder": {
+                    "open_after": {
                         "type": "boolean",
-                        "description": "Set to true if creating a directory instead of a file."
+                        "description": "Whether to open the file after creating it."
                     }
                 },
-                "required": ["path"]
+                "required": ["file_path", "content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_folder",
+            "description": "Creates a folder or directory structure on the computer.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "folder_path": {
+                        "type": "string",
+                        "description": "The path or name of the folder to create."
+                    }
+                },
+                "required": ["folder_path"]
             }
         }
     },
@@ -1842,31 +1967,6 @@ GROQ_TOOL_DECLARATIONS = [
                 "required": ["file_path"]
             }
         }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "run_opencode_task",
-            "description": "Executes complex coding, debugging, project creation, or autonomous system tasks using the OpenCode CLI ('opencode.cmd') in the terminal with an improved, detailed prompt.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "prompt": {
-                        "type": "string",
-                        "description": "An improved, detailed, step-by-step instruction formulated for OpenCode to carry out the user's coding or system request."
-                    },
-                    "working_dir": {
-                        "type": "string",
-                        "description": "Optional working directory where OpenCode should execute the task."
-                    },
-                    "in_terminal_window": {
-                        "type": "boolean",
-                        "description": "Whether to open a visible interactive terminal window running OpenCode (default true)."
-                    }
-                },
-                "required": ["prompt"]
-            }
-        }
     }
 ]
 
@@ -1891,7 +1991,6 @@ TOOL_FUNCTION_MAP = {
     "send_whatsapp_message": send_whatsapp_message,
     "call_on_whatsapp": call_on_whatsapp,
     "send_email_compose": send_email_compose,
-    "send_instagram_dm": send_instagram_dm_message,
     "send_instagram_dm_message": send_instagram_dm_message,
     "see_and_analyze_screen": see_and_analyze_screen,
     "scroll_screen": scroll_screen,
@@ -1903,10 +2002,13 @@ TOOL_FUNCTION_MAP = {
     "press_keyboard_keys": press_keyboard_keys,
     "type_keyboard_text": type_keyboard_text,
     "system_action": system_action,
-    "run_terminal_command": run_terminal_command,
+    "run_terminal_command": run_command_in_terminal,
+    "run_command_in_terminal": run_command_in_terminal,
+    "execute_system_command": execute_system_command,
     "create_file_or_folder": create_file_or_folder,
+    "create_file": create_file,
+    "create_folder": create_folder,
+    "create_web_project": create_web_project,
     "search_files": search_files,
     "open_file_or_editor": open_file_or_editor,
-    "run_opencode_task": run_opencode_task,
 }
-
