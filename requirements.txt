@@ -1,9 +1,10 @@
 numpy>=1.24,<3
+sounddevice>=0.4.6,<0.6
 elevenlabs>=1.50,<3
 websockets>=13
 python-dotenv>=1.0,<2
 groq>=0.9.0
-
+SpeechRecognition>=3.10.0
 pyaudio>=0.2.13
 pyautogui>=0.9.54
 pycaw>=20240210
@@ -11,5 +12,4 @@ requests>=2.31.0
 pillow>=10.0.0
 pyperclip>=1.8.0
 openpyxl>=3.1.0
-sounddevice>=0.4.6,<0.6
-SpeechRecognition>=3.10.0
+
